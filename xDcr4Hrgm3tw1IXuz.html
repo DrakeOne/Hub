@@ -1,0 +1,351 @@
+<html><head><base href="https://pokedex.websim.ai/%20agrega%20esto%20en%20la%20esquina%20inferior%20derecha%20https://i.postimg.cc/sX0wFgXs/ezgif-5-4e3f8cd015.gif,%20haz%20qu%C3%A9%20el%20rojo%20sea%20degradado%20a%20m%C3%A1s%20abajo%20oscuro%20y%20que%20sea%20animado%20el%20color,%20agrega%20sombras%20realistas%20a%20https://i.postimg.cc/sX0wFgXs/ezgif-5-4e3f8cd015.gif,%20haz%20las%20sombras%20de%20el%20rect%C3%A1ngulo%20m%C3%A1s%20alargadas%20hacia%20la%20derecha,%20qu%C3%A9%20sea%20realista%20de%20acuerdo%20a%20la%20forma,%20el%20desagradado%20del%20rojo%20es%20en%20forma%20perpendicular,%20combinaci%C3%B3n%20entre%20rojo%20oscuro%20y%20nornal,%20saca%20la%20barra%20de%20b%C3%BAsqueda%20y%20ponla%20abajo%20afuera%20del%20rect%C3%A1ngulo%20rojo%20sube%20y%20separa%20un%20poco%20el%20recuadro%20de%20la%20barra%20de%20b%C3%BAsqueda%20separalos%20un%20poco%20m%C3%A1s,%20haz%20qu%C3%A9%20el%20recamgulo%20rojo%20tenga%20el%20degradado%20m%C3%A1s%20oscuros%20por%20los%20bordes%20y%20que%20se%20vayan%20moviendo%20un%20poco%20el%20degradado,%20a%20la%20barra%20de%20b%C3%BAsqueda%20agr%C3%A9gale%20una%20peque%C3%B1a%20sobra,%20reduce%20la%20sombra%20del%20rect%C3%A1ngulo%20rojo%20un%2060%25%20agrega%20un%20bot%C3%B3n%20de%20ajuste%20en%20la%20esquina%20inferior%20izquierda,%20glassmorphis,%20al%20abrirlo%20este%20tendr%C3%A1%20una%20animaci%C3%B3n%20de%20vueltas%20en%20loop%20hasta%20que%20se%20vuelva%20a%20tocar%20para%20quitar%20los%20ajustes,%20en%20los%20ajustes%20estar%C3%A1n%20varios%20idiomas%20para%20cambiar%20la%20p%C3%A1gina%20web,%20haz%20qu%C3%A9%20al%20tocar%20el%20bot%C3%B3n%20se%20cambie%20el%20idioma%20agr%C3%A9gale%20bordes%20oscuros%20a%20la%20tuerca,%20haz%20qu%C3%A9%20el%20idioma%20default%20sea%20ingl%C3%A9s,%20y%20haz%20qu%C3%A9%20el%20idioma%20se%20almacene%20en%20la%20p%C3%A1gina%20y%20que%20al%20buscar%20el%20Pok%C3%A9mom%20el%20idioma%20permanezca,%20sin%20editar%20nada%20de%20lo%20que%20ya%20esta,%20agrega%20una%20animaci%C3%B3n%20de%20abrir%20y%20cerrar%20al%20menu%20de%20idiomas,%20ahz%20qu%C3%A9%20la%20tuerca%20no%20sea%20clockeable%20como%20imagen,%20ya%20que%20aparece%20un%20recuadro%20azul%20al%20hacer%20click,%20usa%20otro%20m%C3%A9todo%20para%20hacer%20click%20y%20que%20no%20lo%20detecte%20como%20iamge%20en%20moviles,%20bueno,%20haz%20una%20super%20animaci%C3%B3n%20al%20tocar%20la%20tuerca,%20bien,%20pero%20las%20letras%20e%20botones%20de%20los%20idiomas%20desaparecen,%20arreglalo">
+<title>PokéDex - Animated Pokémon Finder</title>
+<style>
+  @font-face {
+    font-family: 'Pokemon Solid';
+    src: url('https://db.onlinewebfonts.com/t/f4d1593471d222ddebd973210265762a.woff2') format('woff2');
+  }
+  body {
+    font-family: 'Pokemon Solid', sans-serif;
+    background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    height: 100vh;
+    margin: 0;
+    overflow: hidden;
+  }
+  .pokedex {
+    background: radial-gradient(ellipse at center, #ff0000 0%, #990000 70%, #660000 100%);
+    background-size: 200% 200%;
+    animation: gradientAnimation 10s ease infinite;
+    border-radius: 20px;
+    padding: 30px;
+    box-shadow: 12px 24px 36px rgba(0,0,0,0.08);
+    text-align: center;
+    position: relative;
+    z-index: 1;
+    transform: perspective(1000px) rotateY(-5deg);
+    margin-bottom: 80px;
+  }
+  @keyframes gradientAnimation {
+    0% { background-position: 0% 0%; }
+    25% { background-position: 100% 0%; }
+    50% { background-position: 100% 100%; }
+    75% { background-position: 0% 100%; }
+    100% { background-position: 0% 0%; }
+  }
+  h1 {
+    color: #ffcb05;
+    text-shadow: 2px 2px #3a5da8;
+    font-size: 3em;
+    margin-bottom: 20px;
+  }
+  #searchForm {
+    display: flex;
+    justify-content: center;
+    margin-top: 40px;
+  }
+  #pokemonInput {
+    padding: 10px;
+    font-size: 1em;
+    border: none;
+    border-radius: 5px 0 0 5px;
+    width: 200px;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  }
+  #searchButton {
+    padding: 10px 20px;
+    font-size: 1em;
+    background-image: url('https://i.postimg.cc/18vTFvQp/gradient-blue.png');
+    background-size: cover;
+    color: white;
+    border: none;
+    border-radius: 0 5px 5px 0;
+    cursor: pointer;
+    transition: opacity 0.3s ease;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  }
+  #searchButton:hover {
+    opacity: 0.8;
+  }
+  .pokeball {
+    width: 100px;
+    height: 100px;
+    background: linear-gradient(to bottom, #ff0000 0%, #ff0000 50%, #ffffff 50%, #ffffff 100%);
+    border-radius: 50%;
+    border: 5px solid #333;
+    position: relative;
+    margin: 20px auto;
+    animation: shake 1.5s ease-in-out infinite;
+    box-shadow: inset -5px 5px 0 5px #ccc;
+  }
+  .pokeball::before {
+    content: '';
+    position: absolute;
+    background: #fff;
+    width: 20px;
+    height: 20px;
+    border: 4px solid #333;
+    border-radius: 50%;
+    bottom: -2px;
+    right: -2px;
+    z-index: 1;
+  }
+  .pokeball::after {
+    content: '';
+    position: absolute;
+    width: 90px;
+    height: 10px;
+    background: #333;
+    top: 45px;
+    left: 0;
+  }
+  @keyframes shake {
+    0% { transform: rotate(0deg); }
+    20% { transform: rotate(-10deg); }
+    40% { transform: rotate(10deg); }
+    60% { transform: rotate(-10deg); }
+    80% { transform: rotate(10deg); }
+    100% { transform: rotate(0deg); }
+  }
+  .pikachu-gif {
+    position: fixed;
+    bottom: 20px;
+    right: 20px;
+    width: 100px;
+    height: auto;
+    z-index: 2;
+    filter: drop-shadow(5px 5px 5px rgba(0,0,0,0.7));
+    animation: pikachu-bounce 2s ease-in-out infinite;
+  }
+  @keyframes pikachu-bounce {
+    0%, 100% { transform: translateY(0); }
+    50% { transform: translateY(-10px); }
+  }
+  .settings-btn {
+    position: fixed;
+    bottom: 20px;
+    left: 20px;
+    width: 50px;
+    height: 50px;
+    background: rgba(255, 255, 255, 0.2);
+    border-radius: 50%;
+    backdrop-filter: blur(10px);
+    border: 2px solid rgba(0, 0, 0, 0.3);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    cursor: pointer;
+    transition: all 0.5s cubic-bezier(0.68, -0.55, 0.265, 1.55);
+    z-index: 1000;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .settings-btn::before {
+    content: '\f013';
+    font-family: 'Font Awesome 5 Free';
+    font-weight: 900;
+    color: rgba(0, 0, 0, 0.7);
+    font-size: 24px;
+    text-shadow: 1px 1px 2px rgba(255, 255, 255, 0.5);
+    transition: all 0.5s cubic-bezier(0.68, -0.55, 0.265, 1.55);
+  }
+  .settings-btn.active {
+    transform: rotate(180deg) scale(1.2);
+    background: rgba(255, 255, 255, 0.4);
+    box-shadow: 0 0 20px rgba(255, 255, 255, 0.8);
+  }
+  .settings-btn.active::before {
+    color: rgba(0, 0, 0, 0.9);
+    text-shadow: 0 0 10px rgba(255, 255, 255, 1);
+  }
+  .settings-panel {
+    position: fixed;
+    bottom: 80px;
+    left: 20px;
+    background: rgba(255, 255, 255, 0.2);
+    backdrop-filter: blur(10px);
+    border-radius: 10px;
+    padding: 20px;
+    z-index: 999;
+    transition: all 0.5s cubic-bezier(0.68, -0.55, 0.265, 1.55);
+    transform: scale(0.8) translateY(50px);
+    opacity: 0;
+    pointer-events: none;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+  .settings-panel.active {
+    transform: scale(1) translateY(0);
+    opacity: 1;
+    pointer-events: auto;
+  }
+  .language-btn {
+    margin: 5px;
+    padding: 5px 10px;
+    background: rgba(255, 255, 255, 0.3);
+    border: none;
+    border-radius: 5px;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    transform: scale(1);
+    opacity: 1;
+    font-family: Arial, sans-serif;
+    font-weight: bold;
+    color: #333;
+    width: 100px;
+    text-align: center;
+  }
+  .language-btn:hover {
+    background: rgba(255, 255, 255, 0.5);
+    transform: scale(1.1);
+  }
+  @keyframes fadeInOut {
+    0% { opacity: 0; transform: translateY(20px); }
+    100% { opacity: 1; transform: translateY(0); }
+  }
+  .settings-panel.active .language-btn {
+    animation: fadeInOut 0.5s ease-out;
+    animation-fill-mode: both;
+  }
+  .settings-panel.active .language-btn:nth-child(1) { animation-delay: 0.1s; }
+  .settings-panel.active .language-btn:nth-child(2) { animation-delay: 0.2s; }
+  .settings-panel.active .language-btn:nth-child(3) { animation-delay: 0.3s; }
+  .settings-panel.active .language-btn:nth-child(4) { animation-delay: 0.4s; }
+  .settings-panel.active .language-btn:nth-child(5) { animation-delay: 0.5s; }
+  .settings-panel.active .language-btn:nth-child(6) { animation-delay: 0.6s; }
+</style>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.3/css/all.min.css">
+</head>
+<body>
+  <div class="pokedex">
+    <h1>
+      <img src="https://i.postimg.cc/6q2Vrgj3/Pok-Web-Dex-7-6-2024.png" alt="PokéWebDex logo" width="256" height="256" style="max-width: 100%; height: auto;">
+    </h1>
+    <div class="pokeball"></div>
+  </div>
+
+  <form id="searchForm" method="GET" action="/pokemon">
+    <input type="text" id="pokemonInput" name="name" placeholder="Enter a Pokémon" required>
+    <button type="submit" id="searchButton">Search</button>
+  </form>
+
+  <img src="https://i.postimg.cc/sX0wFgXs/ezgif-5-4e3f8cd015.gif" alt="Pikachu animado" class="pikachu-gif">
+
+  <div class="settings-btn" id="settingsBtn" role="button" tabindex="0"></div>
+
+  <div class="settings-panel" id="settingsPanel">
+    <button class="language-btn" data-lang="es">Español</button>
+    <button class="language-btn" data-lang="en">English</button>
+    <button class="language-btn" data-lang="fr">Français</button>
+    <button class="language-btn" data-lang="de">Deutsch</button>
+    <button class="language-btn" data-lang="it">Italiano</button>
+    <button class="language-btn" data-lang="ja">日本語</button>
+  </div>
+
+  <script>
+    let currentLang = localStorage.getItem('pokedexLang') || 'en';
+
+    const translations = {
+      'es': {
+        placeholder: 'Ingresa un Pokémon',
+        searchButton: 'Buscar',
+        title: 'PokéDex - Buscador de Pokémon Animado'
+      },
+      'en': {
+        placeholder: 'Enter a Pokémon',
+        searchButton: 'Search',
+        title: 'PokéDex - Animated Pokémon Finder'
+      },
+      'fr': {
+        placeholder: 'Entrez un Pokémon',
+        searchButton: 'Rechercher',
+        title: 'PokéDex - Chercheur de Pokémon Animé'
+      },
+      'de': {
+        placeholder: 'Geben Sie einen Pokémon ein',
+        searchButton: 'Suchen',
+        title: 'PokéDex - Animierter Pokémon-Finder'
+      },
+      'it': {
+        placeholder: 'Inserisci un Pokémon',
+        searchButton: 'Cerca',
+        title: 'PokéDex - Ricercatore di Pokémon Animato'
+      },
+      'ja': {
+        placeholder: 'ポケモンを入力してください',
+        searchButton: '検索',
+        title: 'ポケデックス - アニメーションポケモン検索'
+      }
+    };
+
+    function setLanguage(lang) {
+      currentLang = lang;
+      localStorage.setItem('pokedexLang', lang);
+      const translation = translations[lang];
+      
+      document.getElementById('pokemonInput').placeholder = translation.placeholder;
+      document.getElementById('searchButton').textContent = translation.searchButton;
+      document.title = translation.title;
+    }
+
+    // Set initial language
+    setLanguage(currentLang);
+
+    document.getElementById('searchForm').addEventListener('submit', function(e) {
+      e.preventDefault();
+      const pokemonName = document.getElementById('pokemonInput').value.toLowerCase();
+      window.location.href = `/pokemon?name=${encodeURIComponent(pokemonName)}&lang=${currentLang}`;
+    });
+
+    const settingsBtn = document.getElementById('settingsBtn');
+    const settingsPanel = document.getElementById('settingsPanel');
+    let isSettingsOpen = false;
+
+    settingsBtn.addEventListener('click', toggleSettings);
+    settingsBtn.addEventListener('keypress', function(e) {
+      if (e.key === 'Enter' || e.key === ' ') {
+        toggleSettings();
+      }
+    });
+
+    function toggleSettings() {
+      isSettingsOpen = !isSettingsOpen;
+      settingsBtn.classList.toggle('active', isSettingsOpen);
+      settingsPanel.classList.toggle('active', isSettingsOpen);
+      
+      if (isSettingsOpen) {
+        settingsPanel.querySelectorAll('.language-btn').forEach((btn, index) => {
+          btn.style.animationDelay = `${0.1 * (index + 1)}s`;
+        });
+      } else {
+        settingsPanel.querySelectorAll('.language-btn').forEach((btn) => {
+          btn.style.animationDelay = '';
+        });
+      }
+    }
+
+    const languageBtns = document.querySelectorAll('.language-btn');
+    languageBtns.forEach(btn => {
+      btn.addEventListener('click', function() {
+        const lang = this.getAttribute('data-lang');
+        setLanguage(lang);
+
+        // Close the settings panel after language selection
+        isSettingsOpen = false;
+        settingsBtn.classList.remove('active');
+        settingsPanel.classList.remove('active');
+      });
+    });
+
+    // Check URL parameters for language
+    const urlParams = new URLSearchParams(window.location.search);
+    const langParam = urlParams.get('lang');
+    if (langParam && translations[langParam]) {
+      setLanguage(langParam);
+    }
+  </script>
+</body>
+</html>
