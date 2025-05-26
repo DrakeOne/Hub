@@ -14,15 +14,19 @@ class ChunkManager {
         
         this.blockTypes = CONSTANTS.BLOCK_TYPES;
         
-        this.blockGeometry = new THREE.BoxGeometry(1, 1, 1);
+        // Usar object pool si está disponible, sino crear normalmente
+        this.blockGeometry = window.objectPool ? 
+            window.objectPool.getBoxGeometry(1, 1, 1) : 
+            new THREE.BoxGeometry(1, 1, 1);
+            
         this.materials = {};
         
-        // Pre-crear materiales
+        // Pre-crear materiales usando el pool si está disponible
         for (let type in this.blockTypes) {
             if (this.blockTypes[type]) {
-                this.materials[type] = new THREE.MeshLambertMaterial({ 
-                    color: this.blockTypes[type].color 
-                });
+                this.materials[type] = window.objectPool ?
+                    window.objectPool.getMaterial('lambert', this.blockTypes[type].color) :
+                    new THREE.MeshLambertMaterial({ color: this.blockTypes[type].color });
             }
         }
 
@@ -35,6 +39,9 @@ class ChunkManager {
         // Optimización de renderizado
         this.frustum = new THREE.Frustum();
         this.cameraMatrix = new THREE.Matrix4();
+        
+        // Referencia al object pool
+        this.objectPool = window.objectPool || null;
     }
 
     getChunkKey(x, z) {
@@ -309,7 +316,13 @@ class ChunkManager {
         while (chunk.mesh.children.length > 0) {
             const child = chunk.mesh.children[0];
             chunk.mesh.remove(child);
-            if (child.geometry) child.geometry.dispose();
+            
+            // Si tenemos object pool, intentar devolver el mesh
+            if (this.objectPool && child instanceof THREE.Mesh) {
+                this.objectPool.returnMesh(child);
+            } else if (child.geometry) {
+                child.geometry.dispose();
+            }
         }
 
         // Agrupar bloques por tipo para instanced rendering
@@ -374,11 +387,20 @@ class ChunkManager {
             instancedMesh.castShadow = true;
             instancedMesh.receiveShadow = true;
             
-            const matrix = new THREE.Matrix4();
+            // Usar object pool para la matriz si está disponible
+            const matrix = this.objectPool ? 
+                this.objectPool.getMatrix4() : 
+                new THREE.Matrix4();
+                
             positions.forEach((pos, i) => {
                 matrix.setPosition(pos.x, pos.y, pos.z);
                 instancedMesh.setMatrixAt(i, matrix);
             });
+            
+            // Devolver la matriz al pool si lo usamos
+            if (this.objectPool) {
+                this.objectPool.returnMatrix4(matrix);
+            }
             
             instancedMesh.instanceMatrix.needsUpdate = true;
             instancedMesh.frustumCulled = false; // Desactivar frustum culling por mesh individual
@@ -455,9 +477,13 @@ class ChunkManager {
                 window.game.scene.remove(chunk.mesh);
                 window.game.waterManager.removeWaterFromChunk(chunk.x, chunk.z);
                 
-                // Limpiar geometrías
+                // Limpiar geometrías y devolver meshes al pool si es posible
                 chunk.mesh.traverse((child) => {
-                    if (child.geometry) child.geometry.dispose();
+                    if (this.objectPool && child instanceof THREE.Mesh) {
+                        this.objectPool.returnMesh(child);
+                    } else if (child.geometry) {
+                        child.geometry.dispose();
+                    }
                 });
                 
                 this.chunks.delete(key);
@@ -468,6 +494,11 @@ class ChunkManager {
         // Limpiar caché de biomas periódicamente
         if (this.chunks.size % 10 === 0) {
             this.biomeProvider.clearCache();
+        }
+        
+        // Limpiar pools del object pool periódicamente
+        if (this.objectPool && this.chunks.size % 5 === 0) {
+            this.objectPool.cleanupPools();
         }
         
         const updateTime = performance.now() - startTime;
