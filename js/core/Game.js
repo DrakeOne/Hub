@@ -29,6 +29,9 @@ class Game {
         
         // Performance optimizer
         this.performanceOptimizer = window.performanceOptimizer || null;
+        
+        // Frustum culler
+        this.frustumCuller = window.frustumCuller || null;
     }
 
     setupErrorHandling() {
@@ -204,6 +207,15 @@ class Game {
             const stats = this.performanceOptimizer.getStats();
             debugInfo += `Avg FPS: ${stats.avgFPS}<br>`;
             debugInfo += `Low Performance Mode: ${stats.lowPerformanceMode ? 'ON' : 'OFF'}<br>`;
+        }
+        
+        // Agregar información del frustum culler si está activo
+        if (this.frustumCuller) {
+            const cullerStats = this.frustumCuller.getStats();
+            debugInfo += `<br><strong>Frustum Culling:</strong><br>`;
+            debugInfo += `Visible Chunks: ${cullerStats.visibleChunks}/${cullerStats.totalChunks}<br>`;
+            debugInfo += `Culled: ${cullerStats.culledChunks} (${cullerStats.efficiency})<br>`;
+            debugInfo += `Cache Hit Rate: ${cullerStats.cacheHitRate}<br>`;
         }
         
         this.terrainDebugElement.innerHTML = debugInfo;
@@ -415,6 +427,15 @@ class Game {
         
         // Update chunks
         const chunkCount = this.chunkManager.updateChunks(this.player.position.x, this.player.position.z);
+        
+        // Aplicar frustum culling si está disponible
+        if (this.frustumCuller && this.chunkManager.chunks.size > 0) {
+            this.frustumCuller.cullChunks(
+                this.chunkManager.chunks,
+                this.chunkManager.chunkSize,
+                this.camera
+            );
+        }
         
         // Update HUD
         document.getElementById('chunks').textContent = chunkCount;
