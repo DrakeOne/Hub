@@ -26,6 +26,9 @@ class Game {
         
         // Debug de terreno
         this.terrainDebugElement = null;
+        
+        // Performance optimizer
+        this.performanceOptimizer = window.performanceOptimizer || null;
     }
 
     setupErrorHandling() {
@@ -194,6 +197,13 @@ class Game {
         debugInfo += `FPS: ${document.getElementById('fps').textContent}<br>`;
         if (performance.memory) {
             debugInfo += `Memory: ${(performance.memory.usedJSHeapSize / 1048576).toFixed(2)} MB<br>`;
+        }
+        
+        // Agregar información del optimizador si está activo
+        if (this.performanceOptimizer) {
+            const stats = this.performanceOptimizer.getStats();
+            debugInfo += `Avg FPS: ${stats.avgFPS}<br>`;
+            debugInfo += `Low Performance Mode: ${stats.lowPerformanceMode ? 'ON' : 'OFF'}<br>`;
         }
         
         this.terrainDebugElement.innerHTML = debugInfo;
@@ -370,6 +380,11 @@ class Game {
         
         if (this.isPaused) return;
         
+        // Usar el optimizador de rendimiento si está disponible
+        if (this.performanceOptimizer && !this.performanceOptimizer.shouldRender(currentTime)) {
+            return; // Saltar este frame para mantener FPS estable
+        }
+        
         const deltaTime = (currentTime - this.lastTime) / 1000;
         this.lastTime = currentTime;
         this.time += deltaTime;
@@ -381,7 +396,14 @@ class Game {
         this.frameCount++;
         this.fpsTime += deltaTime;
         if (this.fpsTime >= 1.0) {
-            document.getElementById('fps').textContent = Math.round(this.frameCount / this.fpsTime);
+            const fps = Math.round(this.frameCount / this.fpsTime);
+            document.getElementById('fps').textContent = fps;
+            
+            // Actualizar FPS en el optimizador también
+            if (this.performanceOptimizer) {
+                this.performanceOptimizer.fps = fps;
+            }
+            
             this.frameCount = 0;
             this.fpsTime = 0;
         }
@@ -405,6 +427,11 @@ class Game {
         
         // Update terrain debug
         this.updateTerrainDebug();
+        
+        // Limpiar memoria periódicamente si el optimizador está activo
+        if (this.performanceOptimizer && this.frameCount % 600 === 0) { // Cada ~10 segundos a 60 FPS
+            this.performanceOptimizer.cleanupUnusedObjects();
+        }
         
         // Render
         this.renderer.render(this.scene, this.camera);
