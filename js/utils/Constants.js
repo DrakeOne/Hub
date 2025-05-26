@@ -6,11 +6,11 @@ const CONSTANTS = {
     RENDER_DISTANCE: 5, // Aumentado de 3 a 5 para mejor experiencia
     WATER_LEVEL: 8,
     
-    // Física
+    // Física - Dimensiones exactas de Minecraft
     GRAVITY: 20.0,
-    PLAYER_HEIGHT: 1.8,
-    PLAYER_EYE_HEIGHT: 1.6,
-    PLAYER_RADIUS: 0.3,
+    PLAYER_HEIGHT: 1.8,      // Altura exacta del jugador en Minecraft
+    PLAYER_EYE_HEIGHT: 1.62, // Altura de los ojos: 1.62m desde la base
+    PLAYER_RADIUS: 0.3,      // Radio del jugador: 0.6m de ancho/largo = 0.3m de radio
     
     // Movimiento
     MOVE_SPEED: 5.0,
@@ -24,7 +24,8 @@ const CONSTANTS = {
     TOUCH_SENSITIVITY: 0.003,
     DOUBLE_TAP_TIME: 300, // ms para detectar doble tap
     
-    // Bloques
+    // Bloques - Tamaño estándar 1x1x1 metros
+    BLOCK_SIZE: 1.0, // Tamaño de cada bloque: 1 metro
     BLOCK_TYPES: {
         0: null, // Aire
         1: { color: 0x8B4513, name: 'dirt' }, // Tierra
