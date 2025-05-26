@@ -1,26 +1,32 @@
-// ChunkLoader.js - Sistema de carga asíncrona de chunks para eliminar lag
-// Carga chunks en segundo plano y los construye gradualmente
+// ChunkLoader.js - Sistema de carga asíncrona de chunks optimizado tipo Minecraft
+// Carga chunks en segundo plano con prioridad basada en distancia y dirección del jugador
 
 class ChunkLoader {
     constructor() {
-        // Cola de chunks pendientes
+        // Colas de chunks con prioridad
         this.generationQueue = [];
         this.meshBuildQueue = [];
         
-        // Control de tiempo
-        this.maxGenerationTimePerFrame = 8; // ms máximo para generar por frame
-        this.maxMeshBuildTimePerFrame = 10; // ms máximo para construir meshes por frame
+        // Control de tiempo mejorado
+        this.maxGenerationTimePerFrame = 4; // ms máximo para generar por frame
+        this.maxMeshBuildTimePerFrame = 6; // ms máximo para construir meshes por frame
         
-        // Workers simulados (usando timeouts para no bloquear)
+        // Workers simulados
         this.isGenerating = false;
         this.isBuilding = false;
         
-        // Prioridades
-        this.priorityRadius = 2; // Chunks dentro de este radio tienen prioridad máxima
+        // Sistema de prioridad mejorado
+        this.priorityRadius = 2; // Chunks críticos
+        this.mediumPriorityRadius = 4; // Chunks de prioridad media
         
         // Cache de chunks pre-generados
-        this.preGeneratedChunks = new Map();
-        this.maxPreGenerated = 10;
+        this.chunkCache = new Map();
+        this.maxCachedChunks = 50;
+        
+        // Predicción de movimiento del jugador
+        this.lastPlayerPos = { x: 0, z: 0 };
+        this.playerVelocity = { x: 0, z: 0 };
+        this.lastUpdateTime = performance.now();
         
         // Estadísticas
         this.stats = {
@@ -28,6 +34,8 @@ class ChunkLoader {
             generating: 0,
             building: 0,
             completed: 0,
+            cached: 0,
+            cacheHits: 0,
             avgGenerationTime: 0,
             avgBuildTime: 0
         };
@@ -38,34 +46,114 @@ class ChunkLoader {
         // Pool de geometrías para chunks
         this.geometryPool = new Map();
         
+        // Control de chunks en proceso
+        this.processingChunks = new Set();
+        
+        // Configuración adaptativa
+        this.adaptiveQuality = true;
+        this.currentQualityLevel = 1.0; // 1.0 = máxima calidad
+        
         // Iniciar procesamiento
         this.startProcessing();
     }
     
-    // Agregar chunk a la cola con prioridad
-    queueChunk(chunkX, chunkZ, playerX, playerZ, callback) {
-        // Calcular prioridad basada en distancia al jugador
-        const dx = Math.abs(chunkX - Math.floor(playerX / CONSTANTS.CHUNK_SIZE));
-        const dz = Math.abs(chunkZ - Math.floor(playerZ / CONSTANTS.CHUNK_SIZE));
+    // Calcular prioridad mejorada basada en distancia y dirección del jugador
+    calculatePriority(chunkX, chunkZ, playerX, playerZ) {
+        const playerChunkX = Math.floor(playerX / CONSTANTS.CHUNK_SIZE);
+        const playerChunkZ = Math.floor(playerZ / CONSTANTS.CHUNK_SIZE);
+        
+        const dx = chunkX - playerChunkX;
+        const dz = chunkZ - playerChunkZ;
         const distance = Math.sqrt(dx * dx + dz * dz);
-        const priority = distance <= this.priorityRadius ? 0 : distance;
+        
+        // Prioridad base por distancia
+        let priority = distance;
+        
+        // Bonus de prioridad para chunks en la dirección del movimiento
+        if (this.playerVelocity.x !== 0 || this.playerVelocity.z !== 0) {
+            const velocityMag = Math.sqrt(this.playerVelocity.x ** 2 + this.playerVelocity.z ** 2);
+            if (velocityMag > 0) {
+                const velocityDirX = this.playerVelocity.x / velocityMag;
+                const velocityDirZ = this.playerVelocity.z / velocityMag;
+                
+                const chunkDirX = dx / (distance || 1);
+                const chunkDirZ = dz / (distance || 1);
+                
+                const dotProduct = velocityDirX * chunkDirX + velocityDirZ * chunkDirZ;
+                
+                // Reducir prioridad (más importante) para chunks en la dirección del movimiento
+                if (dotProduct > 0) {
+                    priority *= (1 - dotProduct * 0.5);
+                }
+            }
+        }
+        
+        // Prioridad crítica para chunks muy cercanos
+        if (distance <= this.priorityRadius) {
+            priority *= 0.1;
+        } else if (distance <= this.mediumPriorityRadius) {
+            priority *= 0.5;
+        }
+        
+        return priority;
+    }
+    
+    // Actualizar velocidad del jugador para predicción
+    updatePlayerMovement(playerX, playerZ) {
+        const currentTime = performance.now();
+        const deltaTime = (currentTime - this.lastUpdateTime) / 1000;
+        
+        if (deltaTime > 0) {
+            this.playerVelocity.x = (playerX - this.lastPlayerPos.x) / deltaTime;
+            this.playerVelocity.z = (playerZ - this.lastPlayerPos.z) / deltaTime;
+        }
+        
+        this.lastPlayerPos.x = playerX;
+        this.lastPlayerPos.z = playerZ;
+        this.lastUpdateTime = currentTime;
+    }
+    
+    // Agregar chunk a la cola con prioridad mejorada
+    queueChunk(chunkX, chunkZ, playerX, playerZ, callback) {
+        const key = `${chunkX},${chunkZ}`;
+        
+        // Verificar si ya está procesando
+        if (this.processingChunks.has(key)) {
+            return;
+        }
+        
+        // Verificar cache primero
+        if (this.chunkCache.has(key)) {
+            const cachedChunk = this.chunkCache.get(key);
+            this.stats.cacheHits++;
+            if (callback) {
+                callback(cachedChunk);
+            }
+            return;
+        }
+        
+        // Actualizar movimiento del jugador
+        this.updatePlayerMovement(playerX, playerZ);
+        
+        // Calcular prioridad
+        const priority = this.calculatePriority(chunkX, chunkZ, playerX, playerZ);
         
         const chunkData = {
             x: chunkX,
             z: chunkZ,
             priority: priority,
             callback: callback,
-            timestamp: performance.now()
+            timestamp: performance.now(),
+            playerPos: { x: playerX, z: playerZ }
         };
         
-        // Verificar si ya está en cola
-        const key = `${chunkX},${chunkZ}`;
-        const existingIndex = this.generationQueue.findIndex(c => `${c.x},${c.z}` === key);
+        // Verificar si ya está en cola y actualizar prioridad si es necesario
+        const existingIndex = this.generationQueue.findIndex(c => c.x === chunkX && c.z === chunkZ);
         
         if (existingIndex >= 0) {
-            // Actualizar prioridad si es necesario
             if (this.generationQueue[existingIndex].priority > priority) {
                 this.generationQueue[existingIndex].priority = priority;
+                this.generationQueue[existingIndex].playerPos = { x: playerX, z: playerZ };
                 this.sortQueue();
             }
             return;
@@ -73,6 +161,7 @@ class ChunkLoader {
         
         // Agregar a la cola
         this.generationQueue.push(chunkData);
+        this.processingChunks.add(key);
         this.sortQueue();
         
         this.stats.queued++;
@@ -83,15 +172,32 @@ class ChunkLoader {
         this.generationQueue.sort((a, b) => a.priority - b.priority);
     }
     
-    // Procesar generación de chunks
+    // Procesar generación de chunks con tiempo adaptativo
     async processGeneration() {
         if (this.isGenerating || this.generationQueue.length === 0) return;
         
         this.isGenerating = true;
         const startTime = performance.now();
         
+        // Ajustar tiempo según rendimiento
+        let timeLimit = this.maxGenerationTimePerFrame;
+        if (this.adaptiveQuality && window.game) {
+            const fps = parseInt(document.getElementById('fps').textContent) || 60;
+            if (fps < 30) {
+                timeLimit *= 0.5; // Reducir tiempo si FPS bajo
+                this.currentQualityLevel = 0.7;
+            } else if (fps > 50) {
+                timeLimit *= 1.5; // Aumentar tiempo si FPS alto
+                this.currentQualityLevel = 1.0;
+            }
+        }
+        
+        let chunksProcessed = 0;
+        const maxChunksPerFrame = 3; // Procesar hasta 3 chunks por frame si hay tiempo
+        
         while (this.generationQueue.length > 0 && 
-               performance.now() - startTime < this.maxGenerationTimePerFrame) {
+               performance.now() - startTime < timeLimit &&
+               chunksProcessed < maxChunksPerFrame) {
             
             const chunkData = this.generationQueue.shift();
             this.stats.generating++;
@@ -99,12 +205,18 @@ class ChunkLoader {
             // Generar chunk de forma optimizada
             const chunk = await this.generateChunkOptimized(chunkData.x, chunkData.z);
             
-            // Agregar a la cola de construcción de mesh
+            // Agregar a la cola de construcción de mesh con la misma prioridad
             this.meshBuildQueue.push({
                 chunk: chunk,
                 callback: chunkData.callback,
-                priority: chunkData.priority
+                priority: chunkData.priority,
+                key: `${chunkData.x},${chunkData.z}`
             });
+            
+            // Ordenar cola de meshes por prioridad
+            this.meshBuildQueue.sort((a, b) => a.priority - b.priority);
+            
+            chunksProcessed++;
             
             // Actualizar estadísticas
             const genTime = performance.now() - chunkData.timestamp;
@@ -114,9 +226,8 @@ class ChunkLoader {
         this.isGenerating = false;
     }
     
-    // Generar chunk optimizado
+    // Generar chunk optimizado con calidad adaptativa
     async generateChunkOptimized(chunkX, chunkZ) {
-        // Usar el ChunkManager existente pero de forma optimizada
         const chunk = {
             x: chunkX,
             z: chunkZ,
@@ -124,29 +235,23 @@ class ChunkLoader {
             mesh: new THREE.Group(),
             isDirty: true,
             biomes: new Map(),
-            generationTime: 0
+            generationTime: 0,
+            qualityLevel: this.currentQualityLevel
         };
         
         const startTime = performance.now();
         
-        // Generar en bloques para permitir interrupciones
-        const batchSize = 4; // Procesar 4x4 columnas a la vez
+        // Tamaño de batch adaptativo
+        const batchSize = this.currentQualityLevel >= 1.0 ? 4 : 8;
         
+        // Generar terreno en batches
         for (let bx = 0; bx < CONSTANTS.CHUNK_SIZE; bx += batchSize) {
             for (let bz = 0; bz < CONSTANTS.CHUNK_SIZE; bz += batchSize) {
                 // Procesar batch
-                for (let x = bx; x < Math.min(bx + batchSize, CONSTANTS.CHUNK_SIZE); x++) {
-                    for (let z = bz; z < Math.min(bz + batchSize, CONSTANTS.CHUNK_SIZE); z++) {
-                        const worldX = chunkX * CONSTANTS.CHUNK_SIZE + x;
-                        const worldZ = chunkZ * CONSTANTS.CHUNK_SIZE + z;
-                        
-                        // Generar columna
-                        this.generateColumn(chunk, x, z, worldX, worldZ);
-                    }
-                }
+                this.generateBatch(chunk, bx, bz, batchSize, chunkX, chunkZ);
                 
-                // Permitir que otros procesos ejecuten
-                if (performance.now() - startTime > 4) {
+                // Permitir que otros procesos ejecuten cada 2ms
+                if (performance.now() - startTime > 2) {
                     await new Promise(resolve => setTimeout(resolve, 0));
                 }
             }
@@ -156,23 +261,66 @@ class ChunkLoader {
         return chunk;
     }
     
-    // Generar una columna del chunk
-    generateColumn(chunk, x, z, worldX, worldZ) {
+    // Generar un batch de columnas
+    generateBatch(chunk, startX, startZ, batchSize, chunkX, chunkZ) {
+        const chunkManager = window.game.chunkManager;
+        
+        for (let x = startX; x < Math.min(startX + batchSize, CONSTANTS.CHUNK_SIZE); x++) {
+            for (let z = startZ; z < Math.min(startZ + batchSize, CONSTANTS.CHUNK_SIZE); z++) {
+                const worldX = chunkX * CONSTANTS.CHUNK_SIZE + x;
+                const worldZ = chunkZ * CONSTANTS.CHUNK_SIZE + z;
+                
+                // Generar columna con calidad adaptativa
+                if (this.currentQualityLevel >= 0.9) {
+                    this.generateColumnFull(chunk, x, z, worldX, worldZ);
+                } else {
+                    this.generateColumnFast(chunk, x, z, worldX, worldZ);
+                }
+            }
+        }
+    }
+    
+    // Generación completa de columna
+    generateColumnFull(chunk, x, z, worldX, worldZ) {
         const chunkManager = window.game.chunkManager;
         let highestSolidY = -1;
         
-        // Primera pasada: calcular densidades
+        // Calcular densidades para toda la columna
         for (let y = 0; y < CONSTANTS.CHUNK_HEIGHT; y++) {
             const density = chunkManager.calculateDensity(worldX, y, worldZ);
             
             if (density > chunkManager.generationParams.DENSITY_THRESHOLD) {
                 const key = `${x},${y},${z}`;
-                chunk.blocks.set(key, 3); // Piedra por defecto
+                chunk.blocks.set(key, 3); // Piedra
                 highestSolidY = Math.max(highestSolidY, y);
             }
         }
         
-        // Segunda pasada: aplicar superficie
+        // Aplicar superficie y minerales
+        if (highestSolidY > -1) {
+            this.applySurfaceOptimized(chunk, x, z, worldX, worldZ, highestSolidY);
+        }
+    }
+    
+    // Generación rápida de columna (menor calidad)
+    generateColumnFast(chunk, x, z, worldX, worldZ) {
+        const chunkManager = window.game.chunkManager;
+        let highestSolidY = -1;
+        
+        // Muestrear cada 2 bloques en Y para velocidad
+        for (let y = 0; y < CONSTANTS.CHUNK_HEIGHT; y += 2) {
+            const density = chunkManager.calculateDensity(worldX, y, worldZ);
+            
+            if (density > chunkManager.generationParams.DENSITY_THRESHOLD) {
+                // Llenar los bloques intermedios también
+                for (let dy = 0; dy < 2 && y + dy < CONSTANTS.CHUNK_HEIGHT; dy++) {
+                    const key = `${x},${y + dy},${z}`;
+                    chunk.blocks.set(key, 3);
+                    highestSolidY = Math.max(highestSolidY, y + dy);
+                }
+            }
+        }
+        
         if (highestSolidY > -1) {
             this.applySurfaceOptimized(chunk, x, z, worldX, worldZ, highestSolidY);
         }
@@ -184,7 +332,7 @@ class ChunkLoader {
         const surfaceBiome = chunkManager.biomeProvider.getBiome3D(worldX, surfaceY, worldZ);
         const biomeData = CONSTANTS.BIOME_3D.BIOMES[surfaceBiome];
         
-        // Solo aplicar los bloques más importantes
+        // Solo los bloques visibles de superficie
         for (let y = surfaceY; y >= Math.max(0, surfaceY - 3); y--) {
             const key = `${x},${y},${z}`;
             if (!chunk.blocks.has(key)) continue;
@@ -197,46 +345,95 @@ class ChunkLoader {
                 chunk.blocks.set(key, biomeData.subsurfaceBlock);
             }
         }
+        
+        // Minerales solo en calidad alta
+        if (this.currentQualityLevel >= 0.9) {
+            this.generateSimpleOres(chunk, x, z, worldX, worldZ);
+        }
     }
     
-    // Procesar construcción de meshes
+    // Generación simplificada de minerales
+    generateSimpleOres(chunk, x, z, worldX, worldZ) {
+        // Solo verificar algunos niveles de Y para minerales comunes
+        const checkLevels = [5, 10, 15, 25, 40];
+        
+        for (let y of checkLevels) {
+            const key = `${x},${y},${z}`;
+            if (chunk.blocks.has(key) && chunk.blocks.get(key) === 3) {
+                // Probabilidad simple de mineral
+                const rand = Math.random();
+                if (rand < 0.02) {
+                    chunk.blocks.set(key, 13); // Hierro
+                } else if (rand < 0.025) {
+                    chunk.blocks.set(key, 12); // Oro
+                }
+            }
+        }
+    }
+    
+    // Procesar construcción de meshes optimizada
     async processMeshBuilding() {
         if (this.isBuilding || this.meshBuildQueue.length === 0) return;
         
         this.isBuilding = true;
         const startTime = performance.now();
         
+        // Tiempo adaptativo
+        let timeLimit = this.maxMeshBuildTimePerFrame;
+        if (this.adaptiveQuality && window.game) {
+            const fps = parseInt(document.getElementById('fps').textContent) || 60;
+            if (fps < 30) {
+                timeLimit *= 0.5;
+            } else if (fps > 50) {
+                timeLimit *= 1.5;
+            }
+        }
+        
+        let meshesBuilt = 0;
+        const maxMeshesPerFrame = 2;
+        
         while (this.meshBuildQueue.length > 0 && 
-               performance.now() - startTime < this.maxMeshBuildTimePerFrame) {
+               performance.now() - startTime < timeLimit &&
+               meshesBuilt < maxMeshesPerFrame) {
             
             const meshData = this.meshBuildQueue.shift();
             this.stats.building++;
             
-            // Construir mesh de forma optimizada
+            // Construir mesh
             await this.buildMeshOptimized(meshData.chunk);
             
-            // Callback cuando esté listo
+            // Remover de chunks en proceso
+            this.processingChunks.delete(meshData.key);
+            
+            // Agregar a cache si hay espacio
+            if (this.chunkCache.size < this.maxCachedChunks) {
+                this.chunkCache.set(meshData.key, meshData.chunk);
+                this.stats.cached++;
+            }
+            
+            // Callback
             if (meshData.callback) {
                 meshData.callback(meshData.chunk);
             }
             
+            meshesBuilt++;
             this.stats.completed++;
         }
         
         this.isBuilding = false;
     }
     
-    // Construir mesh optimizado
+    // Construir mesh optimizado con culling mejorado
     async buildMeshOptimized(chunk) {
         const startTime = performance.now();
         
         // Agrupar bloques por tipo
-        const blocksByType = {};
+        const blocksByType = new Map();
         let visibleBlocks = 0;
         
-        // Procesar bloques en batches
+        // Usar un enfoque más eficiente para verificar exposición
         const blocks = Array.from(chunk.blocks.entries());
-        const batchSize = 100;
+        const batchSize = 200; // Procesar más bloques por batch
         
         for (let i = 0; i < blocks.length; i += batchSize) {
             const batch = blocks.slice(i, i + batchSize);
@@ -246,12 +443,13 @@ class ChunkLoader {
                 
                 const [x, y, z] = key.split(',').map(Number);
                 
-                // Verificación rápida de exposición
-                if (this.isBlockExposed(chunk, x, y, z)) {
-                    if (!blocksByType[type]) {
-                        blocksByType[type] = [];
+                // Verificación optimizada de exposición
+                if (this.isBlockExposedFast(chunk, x, y, z)) {
+                    if (!blocksByType.has(type)) {
+                        blocksByType.set(type, []);
                     }
-                    blocksByType[type].push({
+                    
+                    blocksByType.get(type).push({
                         x: chunk.x * CONSTANTS.CHUNK_SIZE + x,
                         y: y,
                         z: chunk.z * CONSTANTS.CHUNK_SIZE + z
@@ -260,8 +458,8 @@ class ChunkLoader {
                 }
             }
             
-            // Permitir otros procesos
-            if (performance.now() - startTime > 5) {
+            // Yield cada 3ms
+            if (performance.now() - startTime > 3) {
                 await new Promise(resolve => setTimeout(resolve, 0));
             }
         }
@@ -269,8 +467,7 @@ class ChunkLoader {
         // Crear instanced meshes
         const chunkManager = window.game.chunkManager;
         
-        for (let type in blocksByType) {
-            const positions = blocksByType[type];
+        for (let [type, positions] of blocksByType) {
             if (positions.length === 0) continue;
             
             const instancedMesh = new THREE.InstancedMesh(
@@ -282,19 +479,12 @@ class ChunkLoader {
             instancedMesh.castShadow = true;
             instancedMesh.receiveShadow = true;
             
-            // Usar pool de matrices si está disponible
-            const matrix = window.objectPool ? 
-                window.objectPool.getMatrix4() : 
-                new THREE.Matrix4();
+            const matrix = new THREE.Matrix4();
             
             positions.forEach((pos, i) => {
                 matrix.setPosition(pos.x, pos.y, pos.z);
                 instancedMesh.setMatrixAt(i, matrix);
             });
-            
-            if (window.objectPool) {
-                window.objectPool.returnMatrix4(matrix);
-            }
             
             instancedMesh.instanceMatrix.needsUpdate = true;
             instancedMesh.frustumCulled = false;
@@ -309,29 +499,26 @@ class ChunkLoader {
         this.stats.avgBuildTime = (this.stats.avgBuildTime + buildTime) / 2;
     }
     
-    // Verificar si un bloque está expuesto (versión optimizada)
-    isBlockExposed(chunk, x, y, z) {
-        const directions = [
-            [0, 1, 0], [0, -1, 0],
-            [1, 0, 0], [-1, 0, 0],
-            [0, 0, 1], [0, 0, -1]
+    // Verificación rápida de exposición de bloque
+    isBlockExposedFast(chunk, x, y, z) {
+        // Verificar solo las 6 caras directas
+        const checks = [
+            [x, y + 1, z], [x, y - 1, z],
+            [x + 1, y, z], [x - 1, y, z],
+            [x, y, z + 1], [x, y, z - 1]
         ];
         
-        for (let dir of directions) {
-            const nx = x + dir[0];
-            const ny = y + dir[1];
-            const nz = z + dir[2];
-            
-            // Verificar límites
+        for (let [nx, ny, nz] of checks) {
+            // Si está fuera de los límites, está expuesto
             if (nx < 0 || nx >= CONSTANTS.CHUNK_SIZE || 
                 ny < 0 || ny >= CONSTANTS.CHUNK_HEIGHT ||
                 nz < 0 || nz >= CONSTANTS.CHUNK_SIZE) {
                 return true;
             }
             
-            // Verificar si hay bloque vecino
+            // Si no hay bloque vecino, está expuesto
             const checkKey = `${nx},${ny},${nz}`;
-            if (!chunk.blocks.has(checkKey) || chunk.blocks.get(checkKey) === 0) {
+            if (!chunk.blocks.has(checkKey)) {
                 return true;
             }
         }
@@ -341,17 +528,45 @@ class ChunkLoader {
     
     // Iniciar procesamiento continuo
     startProcessing() {
-        // Procesar generación
-        setInterval(() => {
-            if (!window.game || window.game.isPaused) return;
+        // Usar requestAnimationFrame para mejor sincronización
+        const process = () => {
+            if (!window.game || window.game.isPaused) {
+                requestAnimationFrame(process);
+                return;
+            }
+            
+            // Procesar generación y construcción
             this.processGeneration();
-        }, 16); // ~60 FPS
-        
-        // Procesar construcción de meshes
-        setInterval(() => {
-            if (!window.game || window.game.isPaused) return;
             this.processMeshBuilding();
-        }, 16); // ~60 FPS
+            
+            requestAnimationFrame(process);
+        };
+        
+        requestAnimationFrame(process);
+    }
+    
+    // Limpiar cache de chunks lejanos
+    cleanupCache(playerX, playerZ) {
+        const playerChunkX = Math.floor(playerX / CONSTANTS.CHUNK_SIZE);
+        const playerChunkZ = Math.floor(playerZ / CONSTANTS.CHUNK_SIZE);
+        const maxDistance = CONSTANTS.RENDER_DISTANCE * 2;
+        
+        const toRemove = [];
+        
+        for (let [key, chunk] of this.chunkCache) {
+            const dx = chunk.x - playerChunkX;
+            const dz = chunk.z - playerChunkZ;
+            const distance = Math.sqrt(dx * dx + dz * dz);
+            
+            if (distance > maxDistance) {
+                toRemove.push(key);
+            }
+        }
+        
+        // Remover chunks lejanos del cache
+        for (let key of toRemove) {
+            this.chunkCache.delete(key);
+        }
     }
     
     // Obtener estadísticas
@@ -360,7 +575,10 @@ class ChunkLoader {
             ...this.stats,
             generationQueueSize: this.generationQueue.length,
             meshQueueSize: this.meshBuildQueue.length,
-            totalQueued: this.generationQueue.length + this.meshBuildQueue.length
+            totalQueued: this.generationQueue.length + this.meshBuildQueue.length,
+            cacheSize: this.chunkCache.size,
+            qualityLevel: this.currentQualityLevel,
+            processingCount: this.processingChunks.size
         };
     }
     
@@ -368,26 +586,33 @@ class ChunkLoader {
     clearQueues() {
         this.generationQueue = [];
         this.meshBuildQueue = [];
+        this.processingChunks.clear();
     }
     
-    // Pre-generar chunks cercanos
-    preGenerateNearbyChunks(playerX, playerZ, radius = 2) {
+    // Pre-generar chunks en la dirección del movimiento
+    predictivePreload(playerX, playerZ, velocityX, velocityZ) {
+        const speed = Math.sqrt(velocityX * velocityX + velocityZ * velocityZ);
+        if (speed < 0.1) return; // No pre-cargar si el jugador está quieto
+        
+        // Normalizar dirección
+        const dirX = velocityX / speed;
+        const dirZ = velocityZ / speed;
+        
+        // Calcular chunks a pre-cargar basado en velocidad
+        const preloadDistance = Math.min(3 + Math.floor(speed / 10), 6);
         const playerChunkX = Math.floor(playerX / CONSTANTS.CHUNK_SIZE);
         const playerChunkZ = Math.floor(playerZ / CONSTANTS.CHUNK_SIZE);
         
-        for (let dx = -radius; dx <= radius; dx++) {
-            for (let dz = -radius; dz <= radius; dz++) {
-                const chunkX = playerChunkX + dx;
-                const chunkZ = playerChunkZ + dz;
-                const key = `${chunkX},${chunkZ}`;
+        // Pre-cargar chunks en un cono en la dirección del movimiento
+        for (let distance = 1; distance <= preloadDistance; distance++) {
+            for (let spread = -1; spread <= 1; spread++) {
+                const offsetX = Math.round(dirX * distance + dirZ * spread * 0.5);
+                const offsetZ = Math.round(dirZ * distance - dirX * spread * 0.5);
                 
-                if (!this.preGeneratedChunks.has(key)) {
-                    this.queueChunk(chunkX, chunkZ, playerX, playerZ, (chunk) => {
-                        if (this.preGeneratedChunks.size < this.maxPreGenerated) {
-                            this.preGeneratedChunks.set(key, chunk);
-                        }
-                    });
-                }
+                const chunkX = playerChunkX + offsetX;
+                const chunkZ = playerChunkZ + offsetZ;
+                
+                this.queueChunk(chunkX, chunkZ, playerX, playerZ, null);
             }
         }
     }
