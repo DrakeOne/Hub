@@ -20,10 +20,10 @@ class Player {
         this.isFlying = false;
         this.isFlyingFast = false;
         
-        // Propiedades físicas
-        this.height = CONSTANTS.PLAYER_HEIGHT;
-        this.eyeHeight = CONSTANTS.PLAYER_EYE_HEIGHT;
-        this.radius = CONSTANTS.PLAYER_RADIUS;
+        // Propiedades físicas - Dimensiones exactas de Minecraft
+        this.height = CONSTANTS.PLAYER_HEIGHT;       // 1.8 metros
+        this.eyeHeight = CONSTANTS.PLAYER_EYE_HEIGHT; // 1.62 metros desde la base
+        this.radius = CONSTANTS.PLAYER_RADIUS;        // 0.3 metros (0.6m de ancho)
         
         // Controles
         this.inputVector = new THREE.Vector2(0, 0);
@@ -127,7 +127,7 @@ class Player {
             this.moveWithCollision(deltaTime);
         }
         
-        // Actualizar cámara
+        // Actualizar cámara - Posición exacta de Minecraft
         window.game.camera.position.copy(this.position);
         window.game.camera.position.y = this.position.y - (this.height - this.eyeHeight);
         window.game.camera.rotation.copy(this.rotation);
@@ -213,19 +213,30 @@ class Player {
         if (this.isFlying) return false;
         
         // Verificar colisión con bloques alrededor del jugador
+        // Usar hitbox exacta de Minecraft: 0.6x1.8x0.6 metros
         const positions = [
+            // Esquinas inferiores
             [this.radius, 0, this.radius],
             [-this.radius, 0, this.radius],
             [this.radius, 0, -this.radius],
             [-this.radius, 0, -this.radius],
+            // Puntos medios
             [this.radius, -this.height/2, this.radius],
             [-this.radius, -this.height/2, this.radius],
             [this.radius, -this.height/2, -this.radius],
             [-this.radius, -this.height/2, -this.radius],
+            // Esquinas superiores (cabeza)
             [this.radius, -this.height + 0.1, this.radius],
             [-this.radius, -this.height + 0.1, this.radius],
             [this.radius, -this.height + 0.1, -this.radius],
-            [-this.radius, -this.height + 0.1, -this.radius]
+            [-this.radius, -this.height + 0.1, -this.radius],
+            // Puntos adicionales para mejor detección
+            [0, 0, this.radius],
+            [0, 0, -this.radius],
+            [this.radius, 0, 0],
+            [-this.radius, 0, 0],
+            [0, -this.height + 0.1, 0],
+            [0, -this.height/2, 0]
         ];
         
         for (let offset of positions) {
@@ -245,17 +256,27 @@ class Player {
         // Buscar el bloque más alto debajo del jugador
         let maxY = -Infinity;
         
-        // Verificar en un área alrededor del jugador
-        for (let dx = -1; dx <= 1; dx++) {
-            for (let dz = -1; dz <= 1; dz++) {
-                const checkX = Math.floor(this.position.x + dx * this.radius);
-                const checkZ = Math.floor(this.position.z + dz * this.radius);
-                
-                for (let y = Math.floor(this.position.y); y >= 0; y--) {
-                    if (window.game.chunkManager.getBlock(checkX, y, checkZ) !== 0) {
-                        maxY = Math.max(maxY, y + 1);
-                        break;
-                    }
+        // Verificar en un área alrededor del jugador (hitbox de 0.6x0.6)
+        const checkPoints = [
+            [0, 0],
+            [this.radius, 0],
+            [-this.radius, 0],
+            [0, this.radius],
+            [0, -this.radius],
+            [this.radius, this.radius],
+            [-this.radius, this.radius],
+            [this.radius, -this.radius],
+            [-this.radius, -this.radius]
+        ];
+        
+        for (let [dx, dz] of checkPoints) {
+            const checkX = Math.floor(this.position.x + dx);
+            const checkZ = Math.floor(this.position.z + dz);
+            
+            for (let y = Math.floor(this.position.y); y >= 0; y--) {
+                if (window.game.chunkManager.getBlock(checkX, y, checkZ) !== 0) {
+                    maxY = Math.max(maxY, y + 1);
+                    break;
                 }
             }
         }
@@ -341,13 +362,20 @@ class Player {
             const newPos = hit.position.clone().add(hit.normal);
             
             // Verificar que no colisione con el jugador
+            // Usar hitbox exacta de Minecraft
             const playerMin = this.position.clone().sub(new THREE.Vector3(this.radius, this.height, this.radius));
             const playerMax = this.position.clone().add(new THREE.Vector3(this.radius, 0, this.radius));
             
-            if (newPos.x < playerMin.x - 1 || newPos.x > playerMax.x ||
-                newPos.y < playerMin.y - 1 || newPos.y > playerMax.y ||
-                newPos.z < playerMin.z - 1 || newPos.z > playerMax.z) {
-                
+            // Verificar que el bloque no se superponga con el jugador
+            const blockMin = newPos.clone();
+            const blockMax = newPos.clone().add(new THREE.Vector3(1, 1, 1));
+            
+            // Comprobar superposición
+            const overlap = !(blockMax.x <= playerMin.x || blockMin.x >= playerMax.x ||
+                            blockMax.y <= playerMin.y || blockMin.y >= playerMax.y ||
+                            blockMax.z <= playerMin.z || blockMin.z >= playerMax.z);
+            
+            if (!overlap) {
                 const blockTypeMap = {
                     1: 3, // Piedra
                     2: 4, // Madera
