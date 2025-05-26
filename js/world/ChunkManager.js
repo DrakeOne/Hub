@@ -480,6 +480,22 @@ class ChunkManager {
                     this.chunks.set(key, chunk);
                     this.loadingChunks.delete(key);
                     
+                    // IMPORTANTE: Agregar el mesh a la escena
+                    if (chunk.mesh && window.game && window.game.scene) {
+                        window.game.scene.add(chunk.mesh);
+                    }
+                    
+                    // Añadir agua si es necesario
+                    const centerBiome = this.biomeProvider.getBiome3D(
+                        chunkX * this.chunkSize + this.chunkSize / 2,
+                        CONSTANTS.WATER_LEVEL,
+                        chunkZ * this.chunkSize + this.chunkSize / 2
+                    );
+                    
+                    if (centerBiome === 'ocean' || centerBiome === 'deep_ocean') {
+                        window.game.waterManager.addWaterToChunk(chunkX, chunkZ, this.chunkSize);
+                    }
+                    
                     // Actualizar contador de bloques
                     window.game.blockCount = 0;
                     this.chunks.forEach(c => {
