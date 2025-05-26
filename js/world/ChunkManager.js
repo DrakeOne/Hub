@@ -42,6 +42,13 @@ class ChunkManager {
         
         // Referencia al object pool
         this.objectPool = window.objectPool || null;
+        
+        // Referencia al chunk loader
+        this.chunkLoader = window.chunkLoader || null;
+        
+        // Control de carga asíncrona
+        this.useAsyncLoading = true; // Activar/desactivar carga asíncrona
+        this.loadingChunks = new Set(); // Chunks que se están cargando
     }
 
     getChunkKey(x, z) {
@@ -453,7 +460,7 @@ class ChunkManager {
                 
                 chunksToLoad.add(key);
                 
-                if (!this.chunks.has(key)) {
+                if (!this.chunks.has(key) && !this.loadingChunks.has(key)) {
                     loadOrder.push({ chunkX, chunkZ, distance, key });
                 }
             }
@@ -462,12 +469,35 @@ class ChunkManager {
         // Ordenar por distancia (más cercanos primero)
         loadOrder.sort((a, b) => a.distance - b.distance);
         
-        // Generar chunks en orden de prioridad
-        let chunksGenerated = 0;
-        for (let { chunkX, chunkZ } of loadOrder) {
-            const chunk = this.generateChunk(chunkX, chunkZ);
-            this.buildChunkMesh(chunk);
-            chunksGenerated++;
+        // Si tenemos ChunkLoader y está activada la carga asíncrona
+        if (this.chunkLoader && this.useAsyncLoading) {
+            // Cargar chunks asíncronamente
+            for (let { chunkX, chunkZ, key } of loadOrder) {
+                this.loadingChunks.add(key);
+                
+                this.chunkLoader.queueChunk(chunkX, chunkZ, playerX, playerZ, (chunk) => {
+                    // Callback cuando el chunk esté listo
+                    this.chunks.set(key, chunk);
+                    this.loadingChunks.delete(key);
+                    
+                    // Actualizar contador de bloques
+                    window.game.blockCount = 0;
+                    this.chunks.forEach(c => {
+                        window.game.blockCount += c.blocks.size;
+                    });
+                });
+            }
+        } else {
+            // Carga síncrona tradicional (con lag)
+            let chunksGenerated = 0;
+            const maxChunksPerFrame = 1; // Limitar chunks por frame para reducir lag
+            
+            for (let i = 0; i < Math.min(loadOrder.length, maxChunksPerFrame); i++) {
+                const { chunkX, chunkZ } = loadOrder[i];
+                const chunk = this.generateChunk(chunkX, chunkZ);
+                this.buildChunkMesh(chunk);
+                chunksGenerated++;
+            }
         }
         
         // Descargar chunks lejanos
@@ -506,10 +536,11 @@ class ChunkManager {
         // Log fin de actualización
         if (this.debugLogger.isLogging) {
             this.debugLogger.logChunkUpdate('end', {
-                chunksGenerated,
+                chunksGenerated: loadOrder.length,
                 chunksUnloaded,
                 totalChunks: this.chunks.size,
-                updateTime
+                updateTime,
+                asyncLoading: this.useAsyncLoading
             });
         }
         
