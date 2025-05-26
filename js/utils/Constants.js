@@ -3,7 +3,7 @@ const CONSTANTS = {
     // Mundo
     CHUNK_SIZE: 16,
     CHUNK_HEIGHT: 128,
-    RENDER_DISTANCE: 3,
+    RENDER_DISTANCE: 5, // Aumentado de 3 a 5 para mejor experiencia
     WATER_LEVEL: 8,
     
     // Física
