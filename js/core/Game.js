@@ -80,7 +80,14 @@ class Game {
         // Inicialización básica
         this.canvas = document.getElementById('gameCanvas');
         this.scene = new THREE.Scene();
-        this.camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+        
+        // Cámara con FOV de Minecraft (70 grados) y near plane más cercano
+        this.camera = new THREE.PerspectiveCamera(
+            70, // FOV de Minecraft
+            window.innerWidth / window.innerHeight, 
+            0.05, // Near plane más cercano para evitar clipping
+            1000  // Far plane
+        );
         
         try {
             this.renderer = new THREE.WebGLRenderer({ 
@@ -155,6 +162,7 @@ class Game {
         // Información del jugador
         debugInfo += `<strong>Player Info:</strong><br>`;
         debugInfo += `Position: ${this.player.position.x.toFixed(2)}, ${this.player.position.y.toFixed(2)}, ${this.player.position.z.toFixed(2)}<br>`;
+        debugInfo += `Camera Y: ${this.camera.position.y.toFixed(2)}<br>`;
         debugInfo += `Current Chunk: ${playerChunkX}, ${playerChunkZ}<br>`;
         debugInfo += `Current Biome: ${this.chunkManager.getBiomeAt(
             Math.floor(this.player.position.x),
