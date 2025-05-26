@@ -46,6 +46,9 @@ class ChunkManager {
         // Referencia al chunk loader
         this.chunkLoader = window.chunkLoader || null;
         
+        // Referencia al sistema de persistencia
+        this.blockPersistence = window.blockPersistence || null;
+        
         // Control de carga asíncrona
         this.useAsyncLoading = true; // Activar/desactivar carga asíncrona
         this.loadingChunks = new Set(); // Chunks que se están cargando
@@ -175,6 +178,14 @@ class ChunkManager {
                 if (highestSolidY > -1) {
                     this.applySurfaceAndOres(chunk, x, z, worldX, worldZ, columnDensities);
                 }
+            }
+        }
+        
+        // IMPORTANTE: Aplicar cambios guardados del jugador
+        if (this.blockPersistence) {
+            const hasChanges = this.blockPersistence.applyChangesToChunk(chunk, this.chunkSize);
+            if (hasChanges) {
+                console.log(`Applied saved changes to chunk ${chunkX}, ${chunkZ}`);
             }
         }
 
@@ -476,14 +487,17 @@ class ChunkManager {
                 this.loadingChunks.add(key);
                 
                 this.chunkLoader.queueChunk(chunkX, chunkZ, playerX, playerZ, (chunk) => {
-                    // Callback cuando el chunk esté listo
+                    // Aplicar cambios guardados
+                    if (this.blockPersistence) {
+                        this.blockPersistence.applyChangesToChunk(chunk, this.chunkSize);
+                    }
+                    
+                    // IMPORTANTE: Construir el mesh aquí
+                    this.buildChunkMeshAsync(chunk);
+                    
+                    // Agregar a la lista de chunks
                     this.chunks.set(key, chunk);
                     this.loadingChunks.delete(key);
-                    
-                    // IMPORTANTE: Agregar el mesh a la escena
-                    if (chunk.mesh && window.game && window.game.scene) {
-                        window.game.scene.add(chunk.mesh);
-                    }
                     
                     // Añadir agua si es necesario
                     const centerBiome = this.biomeProvider.getBiome3D(
@@ -562,6 +576,12 @@ class ChunkManager {
         
         return this.chunks.size;
     }
+    
+    // Construir mesh de forma asíncrona
+    buildChunkMeshAsync(chunk) {
+        // Usar el método normal pero asegurarse de que se agregue a la escena
+        this.buildChunkMesh(chunk);
+    }
 
     // Actualizar distancia de renderizado
     setRenderDistance(newDistance) {
@@ -600,6 +620,17 @@ class ChunkManager {
                 chunk.blocks.delete(blockKey);
             } else {
                 chunk.blocks.set(blockKey, type);
+            }
+            
+            // Registrar el cambio en el sistema de persistencia
+            if (this.blockPersistence) {
+                this.blockPersistence.recordBlockChange(
+                    Math.floor(x), 
+                    Math.floor(y), 
+                    Math.floor(z), 
+                    type, 
+                    this.chunkSize
+                );
             }
             
             chunk.isDirty = true;
