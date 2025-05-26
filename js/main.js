@@ -39,6 +39,16 @@ window.resetWorld = function() {
     });
     window.game.waterManager.waterMeshes.clear();
     
+    // Limpiar datos guardados de bloques
+    if (window.blockPersistence) {
+        window.blockPersistence.clearAllData();
+    }
+    
+    // Limpiar colas del chunk loader si existe
+    if (window.chunkLoader) {
+        window.chunkLoader.clearQueues();
+    }
+    
     // Generar nueva semilla
     window.game.chunkManager.seed = Math.random() * 10000;
     window.game.chunkManager.noise = new SimplexNoise(window.game.chunkManager.seed);
@@ -50,3 +60,10 @@ window.resetWorld = function() {
     
     window.resumeGame();
 }
+
+// Guardar automáticamente antes de cerrar la página
+window.addEventListener('beforeunload', function(e) {
+    if (window.blockPersistence && window.blockPersistence.pendingChanges) {
+        window.blockPersistence.saveAllChanges();
+    }
+});
