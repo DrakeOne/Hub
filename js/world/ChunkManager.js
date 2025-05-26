@@ -52,6 +52,15 @@ class ChunkManager {
         // Control de carga asíncrona
         this.useAsyncLoading = true; // Activar/desactivar carga asíncrona
         this.loadingChunks = new Set(); // Chunks que se están cargando
+        
+        // Sistema de prioridad de chunks
+        this.chunkPriorities = new Map();
+        this.lastPlayerChunk = { x: null, z: null };
+        
+        // Control de velocidad del jugador para predicción
+        this.playerVelocity = { x: 0, z: 0 };
+        this.lastPlayerPos = { x: 0, z: 0 };
+        this.lastUpdateTime = performance.now();
     }
 
     getChunkKey(x, z) {
@@ -447,117 +456,123 @@ class ChunkManager {
         });
     }
 
+    // Método mejorado para actualizar chunks con carga predictiva
     updateChunks(playerX, playerZ) {
         const startTime = performance.now();
         const playerChunkX = Math.floor(playerX / this.chunkSize);
         const playerChunkZ = Math.floor(playerZ / this.chunkSize);
+        
+        // Calcular velocidad del jugador para predicción
+        const currentTime = performance.now();
+        const deltaTime = (currentTime - this.lastUpdateTime) / 1000;
+        
+        if (deltaTime > 0 && this.lastPlayerPos.x !== null) {
+            this.playerVelocity.x = (playerX - this.lastPlayerPos.x) / deltaTime;
+            this.playerVelocity.z = (playerZ - this.lastPlayerPos.z) / deltaTime;
+        }
+        
+        this.lastPlayerPos.x = playerX;
+        this.lastPlayerPos.z = playerZ;
+        this.lastUpdateTime = currentTime;
         
         // Log actualización
         if (this.debugLogger.isLogging) {
             this.debugLogger.logChunkUpdate('start', { playerChunkX, playerChunkZ });
         }
         
+        // Determinar chunks necesarios
         const chunksToLoad = new Set();
+        const chunkLoadList = [];
         
-        // Determinar qué chunks cargar con prioridad por distancia
-        const loadOrder = [];
-        
-        for (let x = -this.renderDistance; x <= this.renderDistance; x++) {
-            for (let z = -this.renderDistance; z <= this.renderDistance; z++) {
-                const chunkX = playerChunkX + x;
-                const chunkZ = playerChunkZ + z;
+        // Crear lista de chunks con prioridad
+        for (let dx = -this.renderDistance; dx <= this.renderDistance; dx++) {
+            for (let dz = -this.renderDistance; dz <= this.renderDistance; dz++) {
+                const chunkX = playerChunkX + dx;
+                const chunkZ = playerChunkZ + dz;
                 const key = this.getChunkKey(chunkX * this.chunkSize, chunkZ * this.chunkSize);
-                const distance = Math.sqrt(x * x + z * z);
+                const distance = Math.sqrt(dx * dx + dz * dz);
                 
-                chunksToLoad.add(key);
-                
-                if (!this.chunks.has(key) && !this.loadingChunks.has(key)) {
-                    loadOrder.push({ chunkX, chunkZ, distance, key });
+                // Solo cargar chunks dentro del radio de render
+                if (distance <= this.renderDistance) {
+                    chunksToLoad.add(key);
+                    
+                    if (!this.chunks.has(key) && !this.loadingChunks.has(key)) {
+                        chunkLoadList.push({ 
+                            chunkX, 
+                            chunkZ, 
+                            distance, 
+                            key,
+                            priority: this.calculateChunkPriority(dx, dz, distance)
+                        });
+                    }
                 }
             }
         }
         
-        // Ordenar por distancia (más cercanos primero)
-        loadOrder.sort((a, b) => a.distance - b.distance);
+        // Ordenar por prioridad (menor = más prioritario)
+        chunkLoadList.sort((a, b) => a.priority - b.priority);
         
         // Si tenemos ChunkLoader y está activada la carga asíncrona
         if (this.chunkLoader && this.useAsyncLoading) {
-            // Cargar chunks asíncronamente
-            for (let { chunkX, chunkZ, key } of loadOrder) {
+            // Cargar chunks asíncronamente con el nuevo sistema mejorado
+            for (let { chunkX, chunkZ, key } of chunkLoadList) {
                 this.loadingChunks.add(key);
                 
                 this.chunkLoader.queueChunk(chunkX, chunkZ, playerX, playerZ, (chunk) => {
-                    // Aplicar cambios guardados
-                    if (this.blockPersistence) {
-                        this.blockPersistence.applyChangesToChunk(chunk, this.chunkSize);
-                    }
-                    
-                    // IMPORTANTE: Construir el mesh aquí
-                    this.buildChunkMeshAsync(chunk);
-                    
-                    // Agregar a la lista de chunks
-                    this.chunks.set(key, chunk);
-                    this.loadingChunks.delete(key);
-                    
-                    // Añadir agua si es necesario
-                    const centerBiome = this.biomeProvider.getBiome3D(
-                        chunkX * this.chunkSize + this.chunkSize / 2,
-                        CONSTANTS.WATER_LEVEL,
-                        chunkZ * this.chunkSize + this.chunkSize / 2
-                    );
-                    
-                    if (centerBiome === 'ocean' || centerBiome === 'deep_ocean') {
-                        window.game.waterManager.addWaterToChunk(chunkX, chunkZ, this.chunkSize);
-                    }
-                    
-                    // Actualizar contador de bloques
-                    window.game.blockCount = 0;
-                    this.chunks.forEach(c => {
-                        window.game.blockCount += c.blocks.size;
-                    });
+                    // Callback cuando el chunk está listo
+                    this.onChunkReady(chunk, key);
                 });
             }
-        } else {
-            // Carga síncrona tradicional (con lag)
-            let chunksGenerated = 0;
-            const maxChunksPerFrame = 1; // Limitar chunks por frame para reducir lag
             
-            for (let i = 0; i < Math.min(loadOrder.length, maxChunksPerFrame); i++) {
-                const { chunkX, chunkZ } = loadOrder[i];
+            // Carga predictiva basada en velocidad
+            if (Math.abs(this.playerVelocity.x) > 1 || Math.abs(this.playerVelocity.z) > 1) {
+                this.chunkLoader.predictivePreload(
+                    playerX, 
+                    playerZ, 
+                    this.playerVelocity.x, 
+                    this.playerVelocity.z
+                );
+            }
+            
+            // Limpiar cache del loader periódicamente
+            if (Math.random() < 0.1) { // 10% de probabilidad cada frame
+                this.chunkLoader.cleanupCache(playerX, playerZ);
+            }
+        } else {
+            // Fallback: carga síncrona limitada
+            const maxSyncChunks = 1;
+            for (let i = 0; i < Math.min(chunkLoadList.length, maxSyncChunks); i++) {
+                const { chunkX, chunkZ } = chunkLoadList[i];
                 const chunk = this.generateChunk(chunkX, chunkZ);
                 this.buildChunkMesh(chunk);
-                chunksGenerated++;
             }
         }
         
-        // Descargar chunks lejanos
+        // Descargar chunks lejanos con un margen
+        const unloadDistance = this.renderDistance + 2; // Margen para evitar recargas frecuentes
         let chunksUnloaded = 0;
+        
         this.chunks.forEach((chunk, key) => {
-            if (!chunksToLoad.has(key)) {
-                window.game.scene.remove(chunk.mesh);
-                window.game.waterManager.removeWaterFromChunk(chunk.x, chunk.z);
-                
-                // Limpiar geometrías y devolver meshes al pool si es posible
-                chunk.mesh.traverse((child) => {
-                    if (this.objectPool && child instanceof THREE.Mesh) {
-                        this.objectPool.returnMesh(child);
-                    } else if (child.geometry) {
-                        child.geometry.dispose();
-                    }
-                });
-                
-                this.chunks.delete(key);
+            const chunkCenterX = chunk.x * this.chunkSize + this.chunkSize / 2;
+            const chunkCenterZ = chunk.z * this.chunkSize + this.chunkSize / 2;
+            const distance = Math.sqrt(
+                Math.pow(chunkCenterX - playerX, 2) + 
+                Math.pow(chunkCenterZ - playerZ, 2)
+            ) / this.chunkSize;
+            
+            if (distance > unloadDistance) {
+                this.unloadChunk(chunk, key);
                 chunksUnloaded++;
             }
         });
         
         // Limpiar caché de biomas periódicamente
-        if (this.chunks.size % 10 === 0) {
+        if (this.chunks.size % 20 === 0) {
             this.biomeProvider.clearCache();
         }
         
         // Limpiar pools del object pool periódicamente
-        if (this.objectPool && this.chunks.size % 5 === 0) {
+        if (this.objectPool && this.chunks.size % 10 === 0) {
             this.objectPool.cleanupPools();
         }
         
@@ -566,15 +581,103 @@ class ChunkManager {
         // Log fin de actualización
         if (this.debugLogger.isLogging) {
             this.debugLogger.logChunkUpdate('end', {
-                chunksGenerated: loadOrder.length,
+                chunksQueued: chunkLoadList.length,
                 chunksUnloaded,
                 totalChunks: this.chunks.size,
                 updateTime,
-                asyncLoading: this.useAsyncLoading
+                playerVelocity: Math.sqrt(this.playerVelocity.x ** 2 + this.playerVelocity.z ** 2)
             });
         }
         
         return this.chunks.size;
+    }
+    
+    // Calcular prioridad de chunk basada en posición y movimiento
+    calculateChunkPriority(dx, dz, distance) {
+        let priority = distance;
+        
+        // Bonus para chunks en la dirección del movimiento
+        const speed = Math.sqrt(this.playerVelocity.x ** 2 + this.playerVelocity.z ** 2);
+        if (speed > 0.1) {
+            const velDirX = this.playerVelocity.x / speed;
+            const velDirZ = this.playerVelocity.z / speed;
+            
+            const chunkDirX = dx / (distance || 1);
+            const chunkDirZ = dz / (distance || 1);
+            
+            const alignment = velDirX * chunkDirX + velDirZ * chunkDirZ;
+            
+            if (alignment > 0) {
+                priority *= (1 - alignment * 0.5);
+            }
+        }
+        
+        // Prioridad máxima para chunks muy cercanos
+        if (distance <= 1) {
+            priority *= 0.1;
+        } else if (distance <= 2) {
+            priority *= 0.3;
+        }
+        
+        return priority;
+    }
+    
+    // Callback cuando un chunk está listo
+    onChunkReady(chunk, key) {
+        // Aplicar cambios guardados
+        if (this.blockPersistence) {
+            this.blockPersistence.applyChangesToChunk(chunk, this.chunkSize);
+        }
+        
+        // Construir mesh
+        this.buildChunkMesh(chunk);
+        
+        // Agregar a la lista de chunks
+        this.chunks.set(key, chunk);
+        this.loadingChunks.delete(key);
+        
+        // Añadir agua si es necesario
+        const centerBiome = this.biomeProvider.getBiome3D(
+            chunk.x * this.chunkSize + this.chunkSize / 2,
+            CONSTANTS.WATER_LEVEL,
+            chunk.z * this.chunkSize + this.chunkSize / 2
+        );
+        
+        if (centerBiome === 'ocean' || centerBiome === 'deep_ocean') {
+            window.game.waterManager.addWaterToChunk(chunk.x, chunk.z, this.chunkSize);
+        }
+        
+        // Actualizar contador de bloques
+        this.updateBlockCount();
+    }
+    
+    // Descargar un chunk
+    unloadChunk(chunk, key) {
+        window.game.scene.remove(chunk.mesh);
+        window.game.waterManager.removeWaterFromChunk(chunk.x, chunk.z);
+        
+        // Limpiar geometrías y devolver meshes al pool si es posible
+        chunk.mesh.traverse((child) => {
+            if (this.objectPool && child instanceof THREE.Mesh) {
+                this.objectPool.returnMesh(child);
+            } else if (child.geometry && child.geometry !== this.blockGeometry) {
+                child.geometry.dispose();
+            }
+            
+            if (child.material && !this.materials[child.material.type]) {
+                child.material.dispose();
+            }
+        });
+        
+        this.chunks.delete(key);
+    }
+    
+    // Actualizar contador de bloques
+    updateBlockCount() {
+        window.game.blockCount = 0;
+        this.chunks.forEach(c => {
+            window.game.blockCount += c.blocks.size;
+        });
     }
     
     // Construir mesh de forma asíncrona
