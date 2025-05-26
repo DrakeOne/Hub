@@ -1,0 +1,359 @@
+/* Reset y estilos base */
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+    -webkit-touch-callout: none;
+    -webkit-user-select: none;
+    user-select: none;
+}
+
+body {
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    overflow: hidden;
+    background: #87CEEB;
+}
+
+#gameCanvas {
+    display: block;
+    touch-action: none;
+}
+
+/* HUD */
+.hud {
+    position: absolute;
+    color: white;
+    text-shadow: 2px 2px 4px rgba(0,0,0,0.5);
+    font-weight: bold;
+}
+
+#stats {
+    top: 10px;
+    left: 10px;
+    background: rgba(0,0,0,0.3);
+    padding: 10px;
+    border-radius: 10px;
+    backdrop-filter: blur(5px);
+}
+
+#debugInfo {
+    top: 10px;
+    right: 60px;
+    background: rgba(0,0,0,0.3);
+    padding: 10px;
+    border-radius: 10px;
+    backdrop-filter: blur(5px);
+    font-size: 12px;
+    display: none;
+}
+
+    #debugInfo.show {
+        display: block;
+    }
+
+/* Inventory */
+#inventory {
+    bottom: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    gap: 5px;
+    background: rgba(0,0,0,0.4);
+    padding: 10px;
+    border-radius: 15px;
+    backdrop-filter: blur(10px);
+}
+
+.inventory-slot {
+    width: 50px;
+    height: 50px;
+    border: 3px solid #555;
+    background: rgba(0,0,0,0.3);
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 24px;
+    transition: all 0.2s;
+    cursor: pointer;
+    position: relative;
+}
+
+    .inventory-slot.active {
+        border-color: #fff;
+        box-shadow: 0 0 10px rgba(255,255,255,0.5);
+        transform: scale(1.1);
+    }
+
+    .inventory-slot .count {
+        position: absolute;
+        bottom: 2px;
+        right: 2px;
+        font-size: 12px;
+        background: rgba(0,0,0,0.7);
+        padding: 2px 4px;
+        border-radius: 4px;
+    }
+
+/* Controles móviles */
+#mobileControls {
+    position: absolute;
+    bottom: 100px;
+    left: 20px;
+    display: none;
+}
+
+.joystick-container {
+    position: relative;
+    width: 120px;
+    height: 120px;
+    background: rgba(255,255,255,0.1);
+    border-radius: 50%;
+    border: 3px solid rgba(255,255,255,0.3);
+    backdrop-filter: blur(5px);
+}
+
+.joystick {
+    position: absolute;
+    width: 50px;
+    height: 50px;
+    background: rgba(255,255,255,0.5);
+    border-radius: 50%;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    transition: none;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.3);
+}
+
+#actionButtons {
+    position: absolute;
+    bottom: 100px;
+    right: 20px;
+    display: none;
+    gap: 10px;
+    flex-direction: column;
+}
+
+.action-btn {
+    width: 60px;
+    height: 60px;
+    background: rgba(255,255,255,0.2);
+    border: 3px solid rgba(255,255,255,0.4);
+    border-radius: 50%;
+    color: white;
+    font-size: 24px;
+    font-weight: bold;
+    backdrop-filter: blur(5px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.1s;
+    cursor: pointer;
+}
+
+    .action-btn:active {
+        transform: scale(0.9);
+        background: rgba(255,255,255,0.4);
+    }
+
+#jumpBtn {
+    font-size: 16px;
+}
+
+/* Menú de pausa */
+#pauseMenu {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    background: rgba(0,0,0,0.8);
+    padding: 30px;
+    border-radius: 20px;
+    text-align: center;
+    color: white;
+    display: none;
+    backdrop-filter: blur(10px);
+    z-index: 100;
+}
+
+    #pauseMenu h2 {
+        margin-bottom: 20px;
+        font-size: 32px;
+    }
+
+.menu-btn {
+    display: block;
+    width: 200px;
+    margin: 10px auto;
+    padding: 15px;
+    background: #4CAF50;
+    border: none;
+    border-radius: 10px;
+    color: white;
+    font-size: 18px;
+    font-weight: bold;
+    cursor: pointer;
+    transition: all 0.3s;
+}
+
+    .menu-btn:hover {
+        background: #45a049;
+        transform: scale(1.05);
+    }
+
+#pauseBtn {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    width: 40px;
+    height: 40px;
+    background: rgba(0,0,0,0.3);
+    border: none;
+    border-radius: 10px;
+    color: white;
+    font-size: 20px;
+    backdrop-filter: blur(5px);
+    cursor: pointer;
+}
+
+/* Loading screen */
+#loadingScreen {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: #1a1a1a;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    color: white;
+    z-index: 1000;
+}
+
+.loader {
+    width: 60px;
+    height: 60px;
+    border: 5px solid #333;
+    border-top: 5px solid #4CAF50;
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+    margin-bottom: 20px;
+}
+
+@keyframes spin {
+    0% {
+        transform: rotate(0deg);
+    }
+
+    100% {
+        transform: rotate(360deg);
+    }
+}
+
+/* Crosshair */
+#crosshair {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 20px;
+    height: 20px;
+    pointer-events: none;
+}
+
+    #crosshair::before,
+    #crosshair::after {
+        content: '';
+        position: absolute;
+        background: rgba(255,255,255,0.8);
+        box-shadow: 0 0 3px rgba(0,0,0,0.5);
+    }
+
+    #crosshair::before {
+        width: 2px;
+        height: 20px;
+        left: 9px;
+    }
+
+    #crosshair::after {
+        width: 20px;
+        height: 2px;
+        top: 9px;
+    }
+
+/* Responsive */
+@media (max-width: 768px) {
+    #mobileControls, #actionButtons {
+        display: flex;
+    }
+
+    #crosshair {
+        display: none;
+    }
+}
+
+/* Debug Overlay F3 */
+#debugOverlay {
+    position: absolute;
+    top: 10px;
+    left: 10px;
+    background: rgba(0, 0, 0, 0.7);
+    color: #fff;
+    font-family: 'Courier New', monospace;
+    font-size: 12px;
+    padding: 15px;
+    border-radius: 5px;
+    display: none;
+    z-index: 1000;
+    min-width: 350px;
+    line-height: 1.4;
+    backdrop-filter: blur(5px);
+}
+
+    #debugOverlay.show {
+        display: block;
+    }
+
+    #debugOverlay h3 {
+        margin: 0 0 10px 0;
+        font-size: 14px;
+        color: #4CAF50;
+        border-bottom: 1px solid #4CAF50;
+        padding-bottom: 5px;
+    }
+
+    #debugOverlay .debug-section {
+        margin-bottom: 10px;
+    }
+
+    #debugOverlay .debug-line {
+        display: flex;
+        justify-content: space-between;
+        margin: 2px 0;
+    }
+
+    #debugOverlay .debug-label {
+        color: #aaa;
+    }
+
+    #debugOverlay .debug-value {
+        color: #fff;
+        font-weight: bold;
+    }
+
+    #debugOverlay .debug-error {
+        color: #ff6b6b;
+        margin-top: 10px;
+        padding: 5px;
+        background: rgba(255, 0, 0, 0.1);
+        border-radius: 3px;
+        font-size: 11px;
+    }
+
+    /* Ocultar el debug info anterior cuando F3 está activo */
+    #debugOverlay.show ~ #debugInfo {
+        display: none !important;
+    }

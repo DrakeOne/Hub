@@ -1,0 +1,1853 @@
+craftworld-mobile/
+│
+├── index.html
+├── css/
+│   └── styles.css
+├── js/
+│   ├── main.js
+│   ├── core/
+│   │   ├── Game.js
+│   │   └── Renderer.js
+│   ├── world/
+│   │   ├── ChunkManager.js
+│   │   ├── SkyManager.js
+│   │   └── WaterManager.js
+│   ├── player/
+│   │   ├── Player.js
+│   │   └── Controls.js
+│   ├── ui/
+│   │   ├── HUD.js
+│   │   └── Menu.js
+│   └── utils/
+│       └── Constants.js
+├── assets/
+│   └── (futuro: texturas, sonidos)
+└── README.md
+📋 SEPARACIÓN DEL CÓDIGO
+1️⃣ index.html (Simplificado)
+2️⃣ css/styles.css
+3️⃣ js/utils/Constants.js
+4️⃣ js/world/ChunkManager.js
+5️⃣ js/world/SkyManager.js
+6️⃣ js/world/WaterManager.js
+7️⃣ js/player/Player.js
+8️⃣ js/player/Controls.js
+9️⃣ js/core/Game.js
+🔟 js/main.js
+📝 README.md
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>CraftWorld Mobile - Professional Edition</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/simplex-noise/2.4.0/simplex-noise.min.js"></script>
+    <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+    <!-- Loading Screen -->
+    <div id="loadingScreen">
+        <div class="loader"></div>
+        <h2>Generando mundo...</h2>
+        <p id="loadingProgress">0%</p>
+    </div>
+
+    <!-- Canvas -->
+    <canvas id="gameCanvas"></canvas>
+
+    <!-- Crosshair -->
+    <div id="crosshair"></div>
+
+    <!-- HUD -->
+    <div id="stats" class="hud">
+        <div>FPS: <span id="fps">60</span></div>
+        <div>Chunks: <span id="chunks">0</span></div>
+        <div>Bloques: <span id="blocks">0</span></div>
+        <div>Posición: <span id="position">0, 0, 0</span></div>
+        <div>Bioma: <span id="biome">Llanura</span></div>
+    </div>
+
+    <!-- Debug Info -->
+    <div id="debugInfo" class="hud">
+        <div>Velocidad: <span id="velocity">0, 0, 0</span></div>
+        <div>En suelo: <span id="grounded">No</span></div>
+        <div>Input: <span id="input">0, 0</span></div>
+    </div>
+
+    <!-- Inventory -->
+    <div id="inventory" class="hud">
+        <div class="inventory-slot active" data-slot="0">
+            🪨<span class="count">∞</span>
+        </div>
+        <div class="inventory-slot" data-slot="1">
+            🪵<span class="count">∞</span>
+        </div>
+        <div class="inventory-slot" data-slot="2">
+            🌱<span class="count">∞</span>
+        </div>
+        <div class="inventory-slot" data-slot="3">
+            💎<span class="count">∞</span>
+        </div>
+        <div class="inventory-slot" data-slot="4">
+            💧<span class="count">∞</span>
+        </div>
+    </div>
+
+    <!-- Mobile Controls -->
+    <div id="mobileControls">
+        <div class="joystick-container">
+            <div class="joystick" id="joystick"></div>
+        </div>
+    </div>
+
+    <div id="actionButtons">
+        <button class="action-btn" id="jumpBtn">JUMP</button>
+        <button class="action-btn" id="buildBtn">🔨</button>
+        <button class="action-btn" id="breakBtn">⛏️</button>
+    </div>
+
+    <!-- Pause Button -->
+    <button id="pauseBtn">⏸️</button>
+
+    <!-- Pause Menu -->
+    <div id="pauseMenu">
+        <h2>PAUSA</h2>
+        <button class="menu-btn" onclick="resumeGame()">Continuar</button>
+        <button class="menu-btn" onclick="toggleSound()">Sonido: ON</button>
+        <button class="menu-btn" onclick="resetWorld()">Nuevo Mundo</button>
+    </div>
+
+    <!-- Scripts -->
+    <script src="js/utils/Constants.js"></script>
+    <script src="js/world/SkyManager.js"></script>
+    <script src="js/world/WaterManager.js"></script>
+    <script src="js/world/ChunkManager.js"></script>
+    <script src="js/player/Controls.js"></script>
+    <script src="js/player/Player.js"></script>
+    <script src="js/ui/HUD.js"></script>
+    <script src="js/ui/Menu.js"></script>
+    <script src="js/core/Renderer.js"></script>
+    <script src="js/core/Game.js"></script>
+    <script src="js/main.js"></script>
+</body>
+</html>
+/* Reset y estilos base */
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+    -webkit-touch-callout: none;
+    -webkit-user-select: none;
+    user-select: none;
+}
+
+body {
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    overflow: hidden;
+    background: #87CEEB;
+}
+
+#gameCanvas {
+    display: block;
+    touch-action: none;
+}
+
+/* HUD */
+.hud {
+    position: absolute;
+    color: white;
+    text-shadow: 2px 2px 4px rgba(0,0,0,0.5);
+    font-weight: bold;
+}
+
+#stats {
+    top: 10px;
+    left: 10px;
+    background: rgba(0,0,0,0.3);
+    padding: 10px;
+    border-radius: 10px;
+    backdrop-filter: blur(5px);
+}
+
+#debugInfo {
+    top: 10px;
+    right: 60px;
+    background: rgba(0,0,0,0.3);
+    padding: 10px;
+    border-radius: 10px;
+    backdrop-filter: blur(5px);
+    font-size: 12px;
+    display: none;
+}
+
+#debugInfo.show {
+    display: block;
+}
+
+/* Inventory */
+#inventory {
+    bottom: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    gap: 5px;
+    background: rgba(0,0,0,0.4);
+    padding: 10px;
+    border-radius: 15px;
+    backdrop-filter: blur(10px);
+}
+
+.inventory-slot {
+    width: 50px;
+    height: 50px;
+    border: 3px solid #555;
+    background: rgba(0,0,0,0.3);
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 24px;
+    transition: all 0.2s;
+    cursor: pointer;
+    position: relative;
+}
+
+.inventory-slot.active {
+    border-color: #fff;
+    box-shadow: 0 0 10px rgba(255,255,255,0.5);
+    transform: scale(1.1);
+}
+
+.inventory-slot .count {
+    position: absolute;
+    bottom: 2px;
+    right: 2px;
+    font-size: 12px;
+    background: rgba(0,0,0,0.7);
+    padding: 2px 4px;
+    border-radius: 4px;
+}
+
+/* Controles móviles */
+#mobileControls {
+    position: absolute;
+    bottom: 100px;
+    left: 20px;
+    display: none;
+}
+
+.joystick-container {
+    position: relative;
+    width: 120px;
+    height: 120px;
+    background: rgba(255,255,255,0.1);
+    border-radius: 50%;
+    border: 3px solid rgba(255,255,255,0.3);
+    backdrop-filter: blur(5px);
+}
+
+.joystick {
+    position: absolute;
+    width: 50px;
+    height: 50px;
+    background: rgba(255,255,255,0.5);
+    border-radius: 50%;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    transition: none;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.3);
+}
+
+#actionButtons {
+    position: absolute;
+    bottom: 100px;
+    right: 20px;
+    display: none;
+    gap: 10px;
+    flex-direction: column;
+}
+
+.action-btn {
+    width: 60px;
+    height: 60px;
+    background: rgba(255,255,255,0.2);
+    border: 3px solid rgba(255,255,255,0.4);
+    border-radius: 50%;
+    color: white;
+    font-size: 24px;
+    font-weight: bold;
+    backdrop-filter: blur(5px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.1s;
+    cursor: pointer;
+}
+
+.action-btn:active {
+    transform: scale(0.9);
+    background: rgba(255,255,255,0.4);
+}
+
+#jumpBtn {
+    font-size: 16px;
+}
+
+/* Menú de pausa */
+#pauseMenu {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    background: rgba(0,0,0,0.8);
+    padding: 30px;
+    border-radius: 20px;
+    text-align: center;
+    color: white;
+    display: none;
+    backdrop-filter: blur(10px);
+    z-index: 100;
+}
+
+#pauseMenu h2 {
+    margin-bottom: 20px;
+    font-size: 32px;
+}
+
+.menu-btn {
+    display: block;
+    width: 200px;
+    margin: 10px auto;
+    padding: 15px;
+    background: #4CAF50;
+    border: none;
+    border-radius: 10px;
+    color: white;
+    font-size: 18px;
+    font-weight: bold;
+    cursor: pointer;
+    transition: all 0.3s;
+}
+
+.menu-btn:hover {
+    background: #45a049;
+    transform: scale(1.05);
+}
+
+#pauseBtn {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    width: 40px;
+    height: 40px;
+    background: rgba(0,0,0,0.3);
+    border: none;
+    border-radius: 10px;
+    color: white;
+    font-size: 20px;
+    backdrop-filter: blur(5px);
+    cursor: pointer;
+}
+
+/* Loading screen */
+#loadingScreen {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: #1a1a1a;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    color: white;
+    z-index: 1000;
+}
+
+.loader {
+    width: 60px;
+    height: 60px;
+    border: 5px solid #333;
+    border-top: 5px solid #4CAF50;
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+    margin-bottom: 20px;
+}
+
+@keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+
+/* Crosshair */
+#crosshair {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 20px;
+    height: 20px;
+    pointer-events: none;
+}
+
+#crosshair::before,
+#crosshair::after {
+    content: '';
+    position: absolute;
+    background: rgba(255,255,255,0.8);
+    box-shadow: 0 0 3px rgba(0,0,0,0.5);
+}
+
+#crosshair::before {
+    width: 2px;
+    height: 20px;
+    left: 9px;
+}
+
+#crosshair::after {
+    width: 20px;
+    height: 2px;
+    top: 9px;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+    #mobileControls, #actionButtons {
+        display: flex;
+    }
+    #crosshair {
+        display: none;
+    }
+}
+// Constantes globales del juego
+const CONSTANTS = {
+    // Mundo
+    CHUNK_SIZE: 16,
+    CHUNK_HEIGHT: 64,
+    RENDER_DISTANCE: 3,
+    WATER_LEVEL: 8,
+    
+    // Física
+    GRAVITY: 20.0,
+    PLAYER_HEIGHT: 1.8,
+    PLAYER_EYE_HEIGHT: 1.6,
+    PLAYER_RADIUS: 0.3,
+    
+    // Movimiento
+    MOVE_SPEED: 5.0,
+    RUN_SPEED: 8.0,
+    JUMP_SPEED: 7.0,
+    
+    // Controles
+    MOUSE_SENSITIVITY: 0.002,
+    TOUCH_SENSITIVITY: 0.003,
+    
+    // Bloques
+    BLOCK_TYPES: {
+        0: null, // Aire
+        1: { color: 0x8B4513, name: 'dirt' }, // Tierra
+        2: { color: 0x228B22, name: 'grass' }, // Césped
+        3: { color: 0x808080, name: 'stone' }, // Piedra
+        4: { color: 0x654321, name: 'wood' }, // Madera
+        5: { color: 0x00CED1, name: 'diamond' }, // Diamante
+        6: { color: 0xFFD700, name: 'sand' }, // Arena
+        7: { color: 0xFFFFFF, name: 'snow' } // Nieve
+    },
+    
+    // Biomas
+    BIOMES: {
+        ocean: { name: 'Océano', baseHeight: 5 },
+        beach: { name: 'Playa', baseHeight: 8 },
+        plains: { name: 'Llanura', baseHeight: 10 },
+        mountain: { name: 'Montaña', baseHeight: 20 },
+        desert: { name: 'Desierto', baseHeight: 12 },
+        snow: { name: 'Tundra', baseHeight: 15 }
+    }
+};
+class ChunkManager {
+    constructor() {
+        this.chunks = new Map();
+        this.chunkSize = CONSTANTS.CHUNK_SIZE;
+        this.chunkHeight = CONSTANTS.CHUNK_HEIGHT;
+        this.renderDistance = CONSTANTS.RENDER_DISTANCE;
+        this.seed = Math.random() * 10000;
+        
+        // Inicializar SimplexNoise
+        this.noise = new SimplexNoise(this.seed);
+        
+        this.blockTypes = CONSTANTS.BLOCK_TYPES;
+        
+        this.blockGeometry = new THREE.BoxGeometry(1, 1, 1);
+        this.materials = {};
+        
+        // Pre-crear materiales
+        for (let type in this.blockTypes) {
+            if (this.blockTypes[type]) {
+                this.materials[type] = new THREE.MeshLambertMaterial({ 
+                    color: this.blockTypes[type].color 
+                });
+            }
+        }
+
+        // Geometría instanciada para mejor rendimiento
+        this.instancedMeshes = {};
+        for (let type in this.blockTypes) {
+            if (this.blockTypes[type]) {
+                this.instancedMeshes[type] = [];
+            }
+        }
+    }
+
+    getChunkKey(x, z) {
+        return `${Math.floor(x / this.chunkSize)},${Math.floor(z / this.chunkSize)}`;
+    }
+
+    getBiome(x, z) {
+        const biomeNoise = this.noise.noise2D(x * 0.005, z * 0.005);
+        const moistureNoise = this.noise.noise2D(x * 0.003 + 1000, z * 0.003 + 1000);
+        
+        if (biomeNoise < -0.3) return 'ocean';
+        if (biomeNoise < -0.1) return 'beach';
+        if (moistureNoise > 0.3 && biomeNoise > 0.3) return 'mountain';
+        if (moistureNoise < -0.2) return 'desert';
+        if (biomeNoise > 0.5) return 'snow';
+        return 'plains';
+    }
+
+    getTerrainHeight(x, z, biome) {
+        let height = CONSTANTS.BIOMES[biome].baseHeight;
+        
+        // Ruido base
+        const baseNoise = this.noise.noise2D(x * 0.02, z * 0.02) * 5;
+        const detailNoise = this.noise.noise2D(x * 0.1, z * 0.1) * 2;
+        
+        switch(biome) {
+            case 'ocean':
+                height = 5 + baseNoise * 0.5;
+                break;
+            case 'beach':
+                height = 8 + baseNoise * 0.3;
+                break;
+            case 'plains':
+                height = 10 + baseNoise + detailNoise;
+                break;
+            case 'mountain':
+                const mountainNoise = this.noise.noise2D(x * 0.01, z * 0.01) * 20;
+                height = 20 + mountainNoise + baseNoise;
+                break;
+            case 'desert':
+                height = 12 + baseNoise * 0.8 + Math.sin(x * 0.1) * 2;
+                break;
+            case 'snow':
+                height = 15 + baseNoise + detailNoise;
+                break;
+        }
+        
+        return Math.max(1, Math.floor(height));
+    }
+
+    generateChunk(chunkX, chunkZ) {
+        const chunk = {
+            x: chunkX,
+            z: chunkZ,
+            blocks: new Map(),
+            mesh: new THREE.Group(),
+            isDirty: true,
+            biome: 'plains'
+        };
+
+        // Determinar bioma dominante del chunk
+        const centerX = chunkX * this.chunkSize + this.chunkSize / 2;
+        const centerZ = chunkZ * this.chunkSize + this.chunkSize / 2;
+        chunk.biome = this.getBiome(centerX, centerZ);
+
+        // Generar terreno
+        for (let x = 0; x < this.chunkSize; x++) {
+            for (let z = 0; z < this.chunkSize; z++) {
+                const worldX = chunkX * this.chunkSize + x;
+                const worldZ = chunkZ * this.chunkSize + z;
+                
+                const localBiome = this.getBiome(worldX, worldZ);
+                const height = this.getTerrainHeight(worldX, worldZ, localBiome);
+                
+                for (let y = 0; y < height; y++) {
+                    let blockType = 3; // Piedra por defecto
+                    
+                    // Determinar tipo de bloque según bioma y altura
+                    if (y === height - 1) {
+                        // Superficie
+                        switch(localBiome) {
+                            case 'ocean':
+                            case 'beach':
+                                blockType = 6; // Arena
+                                break;
+                            case 'desert':
+                                blockType = 6; // Arena
+                                break;
+                            case 'snow':
+                                blockType = 7; // Nieve
+                                break;
+                            default:
+                                blockType = 2; // Césped
+                        }
+                    } else if (y > height - 4) {
+                        // Subsuperficie
+                        blockType = localBiome === 'desert' || localBiome === 'beach' ? 6 : 1;
+                    }
+                    
+                    // Minerales raros
+                    if (y < 10 && Math.random() < 0.01) {
+                        blockType = 5; // Diamante
+                    }
+                    
+                    const key = `${x},${y},${z}`;
+                    chunk.blocks.set(key, blockType);
+                }
+            }
+        }
+
+        // Añadir agua si es necesario
+        if (chunk.biome === 'ocean' || chunk.biome === 'beach') {
+            window.game.waterManager.addWaterToChunk(chunkX, chunkZ, this.chunkSize);
+        }
+
+        this.chunks.set(this.getChunkKey(chunkX * this.chunkSize, chunkZ * this.chunkSize), chunk);
+        return chunk;
+    }
+
+    buildChunkMesh(chunk) {
+        // Limpiar mesh anterior
+        while (chunk.mesh.children.length > 0) {
+            const child = chunk.mesh.children[0];
+            chunk.mesh.remove(child);
+            if (child.geometry) child.geometry.dispose();
+        }
+
+        // Agrupar bloques por tipo para instanced rendering
+        const blocksByType = {};
+        
+        chunk.blocks.forEach((type, key) => {
+            if (type === 0) return;
+            
+            const [x, y, z] = key.split(',').map(Number);
+            
+            // Optimización: solo renderizar bloques expuestos
+            let isExposed = false;
+            const directions = [
+                [0, 1, 0], [0, -1, 0],
+                [1, 0, 0], [-1, 0, 0],
+                [0, 0, 1], [0, 0, -1]
+            ];
+            
+            for (let dir of directions) {
+                const checkKey = `${x + dir[0]},${y + dir[1]},${z + dir[2]}`;
+                const neighbor = chunk.blocks.get(checkKey);
+                
+                // También verificar si está en el borde del chunk
+                const nx = x + dir[0];
+                const nz = z + dir[2];
+                const isEdge = nx < 0 || nx >= this.chunkSize || nz < 0 || nz >= this.chunkSize;
+                
+                if (!neighbor || neighbor === 0 || isEdge) {
+                    isExposed = true;
+                    break;
+                }
+            }
+            
+            if (isExposed) {
+                if (!blocksByType[type]) {
+                    blocksByType[type] = [];
+                }
+                blocksByType[type].push({
+                    x: chunk.x * this.chunkSize + x,
+                    y: y,
+                    z: chunk.z * this.chunkSize + z
+                });
+            }
+        });
+
+        // Crear instanced meshes para cada tipo de bloque
+        for (let type in blocksByType) {
+            const positions = blocksByType[type];
+            if (positions.length === 0) continue;
+            
+            const instancedMesh = new THREE.InstancedMesh(
+                this.blockGeometry,
+                this.materials[type],
+                positions.length
+            );
+            
+            instancedMesh.castShadow = true;
+            instancedMesh.receiveShadow = true;
+            
+            const matrix = new THREE.Matrix4();
+            positions.forEach((pos, i) => {
+                matrix.setPosition(pos.x, pos.y, pos.z);
+                instancedMesh.setMatrixAt(i, matrix);
+            });
+            
+            instancedMesh.instanceMatrix.needsUpdate = true;
+            chunk.mesh.add(instancedMesh);
+        }
+
+        chunk.isDirty = false;
+        window.game.scene.add(chunk.mesh);
+        
+        // Actualizar contador de bloques
+        window.game.blockCount = 0;
+        this.chunks.forEach(c => {
+            window.game.blockCount += c.blocks.size;
+        });
+    }
+
+    updateChunks(playerX, playerZ) {
+        const playerChunkX = Math.floor(playerX / this.chunkSize);
+        const playerChunkZ = Math.floor(playerZ / this.chunkSize);
+        
+        const chunksToLoad = new Set();
+        
+        // Determinar qué chunks cargar
+        for (let x = -this.renderDistance; x <= this.renderDistance; x++) {
+            for (let z = -this.renderDistance; z <= this.renderDistance; z++) {
+                const chunkX = playerChunkX + x;
+                const chunkZ = playerChunkZ + z;
+                const key = this.getChunkKey(chunkX * this.chunkSize, chunkZ * this.chunkSize);
+                chunksToLoad.add(key);
+                
+                // Generar chunk si no existe
+                if (!this.chunks.has(key)) {
+                    const chunk = this.generateChunk(chunkX, chunkZ);
+                    this.buildChunkMesh(chunk);
+                }
+            }
+        }
+        
+        // Descargar chunks lejanos
+        this.chunks.forEach((chunk, key) => {
+            if (!chunksToLoad.has(key)) {
+                window.game.scene.remove(chunk.mesh);
+                window.game.waterManager.removeWaterFromChunk(chunk.x, chunk.z);
+                
+                // Limpiar geometrías
+                chunk.mesh.traverse((child) => {
+                    if (child.geometry) child.geometry.dispose();
+                });
+                
+                this.chunks.delete(key);
+            }
+        });
+        
+        return this.chunks.size;
+    }
+
+    getBlock(x, y, z) {
+        const chunkKey = this.getChunkKey(x, z);
+        const chunk = this.chunks.get(chunkKey);
+        
+        if (chunk) {
+            const localX = ((x % this.chunkSize) + this.chunkSize) % this.chunkSize;
+            const localZ = ((z % this.chunkSize) + this.chunkSize) % this.chunkSize;
+            const blockKey = `${Math.floor(localX)},${Math.floor(y)},${Math.floor(localZ)}`;
+            
+            return chunk.blocks.get(blockKey) || 0;
+        }
+        
+        return 0;
+    }
+
+    setBlock(x, y, z, type) {
+        const chunkKey = this.getChunkKey(x, z);
+        const chunk = this.chunks.get(chunkKey);
+        
+        if (chunk) {
+            const localX = ((x % this.chunkSize) + this.chunkSize) % this.chunkSize;
+            const localZ = ((z % this.chunkSize) + this.chunkSize) % this.chunkSize;
+            const blockKey = `${Math.floor(localX)},${Math.floor(y)},${Math.floor(localZ)}`;
+            
+            if (type === 0) {
+                chunk.blocks.delete(blockKey);
+            } else {
+                chunk.blocks.set(blockKey, type);
+            }
+            
+            chunk.isDirty = true;
+            this.buildChunkMesh(chunk);
+            
+            // Actualizar chunks adyacentes si es necesario
+            if (localX === 0 || localX === this.chunkSize - 1 || 
+                localZ === 0 || localZ === this.chunkSize - 1) {
+                this.updateAdjacentChunks(x, z);
+            }
+        }
+    }
+
+    updateAdjacentChunks(x, z) {
+        const directions = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+        
+        directions.forEach(([dx, dz]) => {
+            const adjacentKey = this.getChunkKey(x + dx * this.chunkSize, z + dz * this.chunkSize);
+            const adjacentChunk = this.chunks.get(adjacentKey);
+            
+            if (adjacentChunk && !adjacentChunk.isDirty) {
+                adjacentChunk.isDirty = true;
+                this.buildChunkMesh(adjacentChunk);
+            }
+        });
+    }
+}
+class SkyManager {
+    constructor() {
+        this.time = 0;
+        this.skyColor = new THREE.Color(0x87CEEB);
+        this.sunLight = new THREE.DirectionalLight(0xffffff, 1);
+        this.sunLight.position.set(50, 100, 50);
+        this.sunLight.castShadow = true;
+        this.sunLight.shadow.camera.left = -100;
+        this.sunLight.shadow.camera.right = 100;
+        this.sunLight.shadow.camera.top = 100;
+        this.sunLight.shadow.camera.bottom = -100;
+        this.sunLight.shadow.mapSize.width = 2048;
+        this.sunLight.shadow.mapSize.height = 2048;
+        window.game.scene.add(this.sunLight);
+
+        // Luz ambiental
+        this.ambientLight = new THREE.AmbientLight(0xffffff, 0.4);
+        window.game.scene.add(this.ambientLight);
+
+        // Crear cielo con gradiente
+        this.createSky();
+        this.createMinecraftClouds();
+    }
+
+    createSky() {
+        const skyGeometry = new THREE.SphereGeometry(500, 32, 32);
+        const skyMaterial = new THREE.ShaderMaterial({
+            uniforms: {
+                topColor: { value: new THREE.Color(0x0077ff) },
+                bottomColor: { value: new THREE.Color(0xffffff) },
+                offset: { value: 33 },
+                exponent: { value: 0.6 }
+            },
+            vertexShader: `
+                varying vec3 vWorldPosition;
+                void main() {
+                    vec4 worldPosition = modelMatrix * vec4(position, 1.0);
+                    vWorldPosition = worldPosition.xyz;
+                    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+                }
+            `,
+            fragmentShader: `
+                uniform vec3 topColor;
+                uniform vec3 bottomColor;
+                uniform float offset;
+                uniform float exponent;
+                varying vec3 vWorldPosition;
+                void main() {
+                    float h = normalize(vWorldPosition + offset).y;
+                    gl_FragColor = vec4(mix(bottomColor, topColor, max(pow(max(h, 0.0), exponent), 0.0)), 1.0);
+                }
+            `,
+            side: THREE.BackSide
+        });
+        
+        const sky = new THREE.Mesh(skyGeometry, skyMaterial);
+        window.game.scene.add(sky);
+    }
+
+    createMinecraftClouds() {
+        // Crear nubes estilo Minecraft - planas y pixeladas
+        const cloudGroup = new THREE.Group();
+        const cloudMaterial = new THREE.MeshBasicMaterial({
+            color: 0xffffff,
+            transparent: true,
+            opacity: 0.9,
+            side: THREE.DoubleSide
+        });
+
+        // Función para crear una nube individual estilo Minecraft
+        const createCloud = (x, y, z, width, depth) => {
+            const cloudGeometry = new THREE.BoxGeometry(width, 4, depth);
+            const cloud = new THREE.Mesh(cloudGeometry, cloudMaterial);
+            cloud.position.set(x, y, z);
+            cloud.castShadow = false;
+            cloud.receiveShadow = false;
+            return cloud;
+        };
+
+        // Generar nubes planas estilo Minecraft
+        for (let i = 0; i < 15; i++) {
+            const cloudPart = new THREE.Group();
+            
+            // Patrón de nube estilo Minecraft (forma irregular pero plana)
+            const baseX = Math.random() * 400 - 200;
+            const baseZ = Math.random() * 400 - 200;
+            const baseY = 100 + Math.random() * 20;
+            
+            // Centro de la nube
+            cloudPart.add(createCloud(0, 0, 0, 20, 12));
+            
+            // Extensiones aleatorias para forma irregular
+            if (Math.random() > 0.3) cloudPart.add(createCloud(10, 0, 0, 12, 8));
+            if (Math.random() > 0.3) cloudPart.add(createCloud(-10, 0, 0, 12, 8));
+            if (Math.random() > 0.3) cloudPart.add(createCloud(0, 0, 8, 16, 8));
+            if (Math.random() > 0.3) cloudPart.add(createCloud(0, 0, -8, 16, 8));
+            
+            cloudPart.position.set(baseX, baseY, baseZ);
+            cloudPart.userData.speed = 0.05 + Math.random() * 0.1;
+            cloudGroup.add(cloudPart);
+        }
+        
+        window.game.scene.add(cloudGroup);
+        this.clouds = cloudGroup;
+    }
+
+    update(deltaTime) {
+        this.time += deltaTime * 0.1;
+        
+        // Mover nubes lentamente como en Minecraft
+        if (this.clouds) {
+            this.clouds.children.forEach(cloud => {
+                cloud.position.x += cloud.userData.speed;
+                if (cloud.position.x > 250) {
+                    cloud.position.x = -250;
+                }
+            });
+        }
+        
+        // Actualizar posición del sol (ciclo día/noche simplificado)
+        const sunAngle = this.time * 0.1;
+        this.sunLight.position.x = Math.cos(sunAngle) * 100;
+        this.sunLight.position.y = Math.sin(sunAngle) * 100 + 50;
+        
+        // Ajustar intensidad de luz según hora del día
+        const intensity = Math.max(0.2, Math.sin(sunAngle));
+        this.sunLight.intensity = intensity;
+        this.ambientLight.intensity = 0.3 + intensity * 0.3;
+    }
+}
+class WaterManager {
+    constructor() {
+        this.waterLevel = CONSTANTS.WATER_LEVEL;
+        this.waterMeshes = new Map();
+        this.waterMaterial = new THREE.MeshPhongMaterial({
+            color: 0x006994,
+            transparent: true,
+            opacity: 0.8,
+            shininess: 100,
+            reflectivity: 0.8
+        });
+    }
+
+    addWaterToChunk(chunkX, chunkZ, chunkSize) {
+        const key = `${chunkX},${chunkZ}`;
+        if (this.waterMeshes.has(key)) return;
+
+        const waterGeometry = new THREE.PlaneGeometry(chunkSize, chunkSize);
+        const waterMesh = new THREE.Mesh(waterGeometry, this.waterMaterial);
+        waterMesh.rotation.x = -Math.PI / 2;
+        waterMesh.position.set(
+            chunkX * chunkSize + chunkSize / 2,
+            this.waterLevel,
+            chunkZ * chunkSize + chunkSize / 2
+        );
+        
+        window.game.scene.add(waterMesh);
+        this.waterMeshes.set(key, waterMesh);
+    }
+
+    removeWaterFromChunk(chunkX, chunkZ) {
+        const key = `${chunkX},${chunkZ}`;
+        const waterMesh = this.waterMeshes.get(key);
+        if (waterMesh) {
+            window.game.scene.remove(waterMesh);
+            this.waterMeshes.delete(key);
+        }
+    }
+
+    update(time) {
+        // Animar agua
+        this.waterMeshes.forEach(mesh => {
+            mesh.position.y = this.waterLevel + Math.sin(time * 2) * 0.1;
+        });
+    }
+}
+class Player {
+    constructor() {
+        // Posición y física
+        this.position = new THREE.Vector3(0, 30, 0);
+        this.velocity = new THREE.Vector3(0, 0, 0);
+        this.rotation = new THREE.Euler(0, 0, 0, 'YXZ');
+        
+        // Configuración de movimiento
+        this.moveSpeed = CONSTANTS.MOVE_SPEED;
+        this.runSpeed = CONSTANTS.RUN_SPEED;
+        this.jumpSpeed = CONSTANTS.JUMP_SPEED;
+        this.gravity = CONSTANTS.GRAVITY;
+        
+        // Estados
+        this.isGrounded = false;
+        this.isRunning = false;
+        this.isInWater = false;
+        
+        // Propiedades físicas
+        this.height = CONSTANTS.PLAYER_HEIGHT;
+        this.eyeHeight = CONSTANTS.PLAYER_EYE_HEIGHT;
+        this.radius = CONSTANTS.PLAYER_RADIUS;
+        
+        // Controles
+        this.inputVector = new THREE.Vector2(0, 0);
+        this.keys = {};
+        this.isPointerLocked = false;
+        
+        // Configuración de cámara
+        this.mouseSensitivity = CONSTANTS.MOUSE_SENSITIVITY;
+        this.touchSensitivity = CONSTANTS.TOUCH_SENSITIVITY;
+        
+        // Inventario
+        this.selectedBlock = 1;
+        this.reach = 5;
+        
+        // Mobile
+        this.isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+        
+        this.controls = new Controls(this);
+    }
+
+    update(deltaTime) {
+        // Recopilar input
+        if (!this.isMobile) {
+            this.inputVector.set(0, 0);
+            if (this.keys['KeyW'] || this.keys['ArrowUp']) this.inputVector.y -= 1;
+            if (this.keys['KeyS'] || this.keys['ArrowDown']) this.inputVector.y += 1;
+            if (this.keys['KeyA'] || this.keys['ArrowLeft']) this.inputVector.x -= 1;
+            if (this.keys['KeyD'] || this.keys['ArrowRight']) this.inputVector.x += 1;
+        }
+        
+        // Normalizar input
+        if (this.inputVector.length() > 1) {
+            this.inputVector.normalize();
+        }
+        
+        // Calcular dirección de movimiento
+        const forward = new THREE.Vector3(0, 0, -1);
+        const right = new THREE.Vector3(1, 0, 0);
+        
+        forward.applyAxisAngle(new THREE.Vector3(0, 1, 0), this.rotation.y);
+        right.applyAxisAngle(new THREE.Vector3(0, 1, 0), this.rotation.y);
+        
+        // Aplicar movimiento
+        const speed = this.isRunning ? this.runSpeed : this.moveSpeed;
+        const moveVector = new THREE.Vector3();
+        
+        moveVector.add(forward.multiplyScalar(this.inputVector.y * speed));
+        moveVector.add(right.multiplyScalar(this.inputVector.x * speed));
+        
+        // Aplicar al velocity horizontal
+        this.velocity.x = moveVector.x;
+        this.velocity.z = moveVector.z;
+        
+        // Salto
+        if ((this.keys['Space'] || this.keys['KeyE']) && this.isGrounded) {
+            this.jump();
+        }
+        
+        // Física del agua
+        this.isInWater = this.position.y < window.game.waterManager.waterLevel;
+        
+        if (this.isInWater) {
+            // En agua
+            this.velocity.y *= 0.95;
+            if (this.keys['Space']) {
+                this.velocity.y = 2;
+            } else {
+                this.velocity.y -= 3 * deltaTime;
+            }
+            this.velocity.x *= 0.8;
+            this.velocity.z *= 0.8;
+        } else {
+            // Gravedad normal
+            this.velocity.y -= this.gravity * deltaTime;
+        }
+        
+        // Mover y verificar colisiones
+        this.moveWithCollision(deltaTime);
+        
+        // Actualizar cámara
+        window.game.camera.position.copy(this.position);
+        window.game.camera.position.y = this.position.y - (this.height - this.eyeHeight);
+        window.game.camera.rotation.copy(this.rotation);
+        
+        // Debug info
+        if (window.game.showDebug) {
+            document.getElementById('velocity').textContent = 
+                `${this.velocity.x.toFixed(2)}, ${this.velocity.y.toFixed(2)}, ${this.velocity.z.toFixed(2)}`;
+            document.getElementById('grounded').textContent = this.isGrounded ? 'Sí' : 'No';
+            document.getElementById('input').textContent = 
+                `${this.inputVector.x.toFixed(2)}, ${this.inputVector.y.toFixed(2)}`;
+        }
+        
+        // Actualizar bioma
+        const biome = window.game.chunkManager.getBiome(this.position.x, this.position.z);
+        document.getElementById('biome').textContent = CONSTANTS.BIOMES[biome]?.name || 'Desconocido';
+    }
+
+    moveWithCollision(deltaTime) {
+        // Guardar posición anterior
+        const oldPosition = this.position.clone();
+        
+        // Intentar mover en X y Z
+        const horizontalMove = new THREE.Vector3(
+            this.velocity.x * deltaTime,
+            0,
+            this.velocity.z * deltaTime
+        );
+        
+        this.position.add(horizontalMove);
+        
+        // Verificar colisión horizontal
+        if (this.checkCollision()) {
+            // Revertir y probar cada eje por separado
+            this.position.copy(oldPosition);
+            
+            // Probar X
+            this.position.x += horizontalMove.x;
+            if (this.checkCollision()) {
+                this.position.x = oldPosition.x;
+                this.velocity.x = 0;
+            }
+            
+            // Probar Z
+            this.position.z += horizontalMove.z;
+            if (this.checkCollision()) {
+                this.position.z = oldPosition.z;
+                this.velocity.z = 0;
+            }
+        }
+        
+        // Mover en Y
+        this.position.y += this.velocity.y * deltaTime;
+        
+        // Verificar colisión vertical
+        const groundCheck = this.getGroundHeight();
+        const minY = groundCheck + this.height;
+        
+        if (this.position.y < minY) {
+            this.position.y = minY;
+            if (this.velocity.y < 0) {
+                this.velocity.y = 0;
+                this.isGrounded = true;
+            }
+        } else {
+            this.isGrounded = false;
+        }
+        
+        // Límite del mundo
+        if (this.position.y < -10) {
+            this.position.set(0, 30, 0);
+            this.velocity.set(0, 0, 0);
+        }
+    }
+
+    checkCollision() {
+        // Verificar colisión con bloques alrededor del jugador
+        const positions = [
+            [this.radius, 0, this.radius],
+            [-this.radius, 0, this.radius],
+            [this.radius, 0, -this.radius],
+            [-this.radius, 0, -this.radius],
+            [this.radius, -this.height/2, this.radius],
+            [-this.radius, -this.height/2, this.radius],
+            [this.radius, -this.height/2, -this.radius],
+            [-this.radius, -this.height/2, -this.radius],
+            [this.radius, -this.height + 0.1, this.radius],
+            [-this.radius, -this.height + 0.1, this.radius],
+            [this.radius, -this.height + 0.1, -this.radius],
+            [-this.radius, -this.height + 0.1, -this.radius]
+        ];
+        
+        for (let offset of positions) {
+            const checkX = Math.floor(this.position.x + offset[0]);
+            const checkY = Math.floor(this.position.y + offset[1]);
+            const checkZ = Math.floor(this.position.z + offset[2]);
+            
+            if (window.game.chunkManager.getBlock(checkX, checkY, checkZ) !== 0) {
+                return true;
+            }
+        }
+        
+        return false;
+    }
+
+    getGroundHeight() {
+        // Buscar el bloque más alto debajo del jugador
+        let maxY = -Infinity;
+        
+        // Verificar en un área alrededor del jugador
+        for (let dx = -1; dx <= 1; dx++) {
+            for (let dz = -1; dz <= 1; dz++) {
+                const checkX = Math.floor(this.position.x + dx * this.radius);
+                const checkZ = Math.floor(this.position.z + dz * this.radius);
+                
+                for (let y = Math.floor(this.position.y); y >= 0; y--) {
+                    if (window.game.chunkManager.getBlock(checkX, y, checkZ) !== 0) {
+                        maxY = Math.max(maxY, y + 1);
+                        break;
+                    }
+                }
+            }
+        }
+        
+        return maxY === -Infinity ? 0 : maxY;
+    }
+
+    jump() {
+        if (this.isGrounded && !this.isInWater) {
+            this.velocity.y = this.jumpSpeed;
+            this.isGrounded = false;
+        }
+    }
+
+    getRaycastBlock() {
+        const direction = new THREE.Vector3(0, 0, -1);
+        direction.applyQuaternion(window.game.camera.quaternion);
+        
+        // Buscar bloques en la dirección de la vista
+        for (let distance = 0.5; distance < this.reach; distance += 0.1) {
+            const point = window.game.camera.position.clone().add(direction.clone().multiplyScalar(distance));
+            const x = Math.floor(point.x);
+            const y = Math.floor(point.y);
+            const z = Math.floor(point.z);
+            
+            if (window.game.chunkManager.getBlock(x, y, z) !== 0) {
+                // Determinar la cara del bloque
+                const blockCenter = new THREE.Vector3(x + 0.5, y + 0.5, z + 0.5);
+                const toBlock = point.clone().sub(blockCenter);
+                
+                let normal = new THREE.Vector3();
+                const abs = toBlock.clone();
+                abs.x = Math.abs(abs.x);
+                abs.y = Math.abs(abs.y);
+                abs.z = Math.abs(abs.z);
+                
+                if (abs.x > abs.y && abs.x > abs.z) {
+                    normal.x = Math.sign(toBlock.x);
+                } else if (abs.y > abs.x && abs.y > abs.z) {
+                    normal.y = Math.sign(toBlock.y);
+                } else {
+                    normal.z = Math.sign(toBlock.z);
+                }
+                
+                return { position: new THREE.Vector3(x, y, z), normal };
+            }
+        }
+        
+        return null;
+    }
+
+    placeBlock() {
+        const hit = this.getRaycastBlock();
+        if (hit) {
+            const newPos = hit.position.clone().add(hit.normal);
+            
+            // Verificar que no colisione con el jugador
+            const playerMin = this.position.clone().sub(new THREE.Vector3(this.radius, this.height, this.radius));
+            const playerMax = this.position.clone().add(new THREE.Vector3(this.radius, 0, this.radius));
+            
+            if (newPos.x < playerMin.x - 1 || newPos.x > playerMax.x ||
+                newPos.y < playerMin.y - 1 || newPos.y > playerMax.y ||
+                newPos.z < playerMin.z - 1 || newPos.z > playerMax.z) {
+                
+                const blockTypeMap = {
+                    1: 3, // Piedra
+                    2: 4, // Madera
+                    3: 2, // Césped
+                    4: 5, // Diamante
+                    5: 6  // Arena
+                };
+                
+                window.game.chunkManager.setBlock(newPos.x, newPos.y, newPos.z, blockTypeMap[this.selectedBlock]);
+                this.createBlockParticles(newPos, true);
+            }
+        }
+    }
+
+    breakBlock() {
+        const hit = this.getRaycastBlock();
+        if (hit) {
+            window.game.chunkManager.setBlock(hit.position.x, hit.position.y, hit.position.z, 0);
+            this.createBlockParticles(hit.position, false);
+        }
+    }
+
+    createBlockParticles(position, isPlace) {
+        const particleCount = isPlace ? 5 : 10;
+        const geometry = new THREE.BoxGeometry(0.1, 0.1, 0.1);
+        const material = new THREE.MeshBasicMaterial({ 
+            color: isPlace ? 0xffffff : 0x888888 
+        });
+        
+        for (let i = 0; i < particleCount; i++) {
+            const particle = new THREE.Mesh(geometry, material);
+            particle.position.copy(position).add(new THREE.Vector3(0.5, 0.5, 0.5));
+            
+            particle.velocity = new THREE.Vector3(
+                (Math.random() - 0.5) * 0.2,
+                Math.random() * 0.3,
+                (Math.random() - 0.5) * 0.2
+            );
+            
+            particle.lifetime = 1.0;
+            window.game.scene.add(particle);
+            
+            const animateParticle = () => {
+                particle.lifetime -= 0.02;
+                
+                if (particle.lifetime <= 0) {
+                    window.game.scene.remove(particle);
+                    geometry.dispose();
+                    material.dispose();
+                    return;
+                }
+                
+                particle.position.add(particle.velocity);
+                particle.velocity.y -= 0.01;
+                particle.scale.setScalar(particle.lifetime);
+                particle.material.opacity = particle.lifetime;
+                particle.material.transparent = true;
+                
+                requestAnimationFrame(animateParticle);
+            };
+            
+            animateParticle();
+        }
+    }
+
+    updateInventoryUI() {
+        document.querySelectorAll('.inventory-slot').forEach((slot, index) => {
+            slot.classList.toggle('active', index === this.selectedBlock - 1);
+        });
+    }
+}
+class Controls {
+    constructor(player) {
+        this.player = player;
+        this.setupControls();
+    }
+
+    setupControls() {
+        // === CONTROLES DE TECLADO ===
+        document.addEventListener('keydown', (e) => {
+            this.player.keys[e.code] = true;
+            
+            // Cambiar bloque seleccionado
+            if (e.code >= 'Digit1' && e.code <= 'Digit5') {
+                this.player.selectedBlock = parseInt(e.code.replace('Digit', ''));
+                this.player.updateInventoryUI();
+            }
+            
+            // Correr
+            if (e.code === 'ShiftLeft' || e.code === 'ShiftRight') {
+                this.player.isRunning = true;
+            }
+            
+            // Debug
+            if (e.code === 'F3') {
+                e.preventDefault();
+                window.game.showDebug = !window.game.showDebug;
+                document.getElementById('debugInfo').classList.toggle('show', window.game.showDebug);
+            }
+            
+            // Prevenir comportamiento por defecto
+            if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.code)) {
+                e.preventDefault();
+            }
+        });
+        
+        document.addEventListener('keyup', (e) => {
+            this.player.keys[e.code] = false;
+            
+            if (e.code === 'ShiftLeft' || e.code === 'ShiftRight') {
+                this.player.isRunning = false;
+            }
+        });
+        
+        // === CONTROLES DE MOUSE ===
+        const canvas = document.getElementById('gameCanvas');
+        
+        canvas.addEventListener('click', () => {
+            if (!this.player.isMobile && !window.game.isPaused) {
+                canvas.requestPointerLock();
+            }
+        });
+        
+        document.addEventListener('pointerlockchange', () => {
+            this.player.isPointerLocked = document.pointerLockElement === canvas;
+        });
+        
+        document.addEventListener('mousemove', (e) => {
+            if (this.player.isPointerLocked) {
+                this.player.rotation.y -= e.movementX * this.player.mouseSensitivity;
+                this.player.rotation.x -= e.movementY * this.player.mouseSensitivity;
+                this.player.rotation.x = Math.max(-Math.PI/2, Math.min(Math.PI/2, this.player.rotation.x));
+            }
+        });
+        
+        canvas.addEventListener('mousedown', (e) => {
+            if (this.player.isPointerLocked) {
+                if (e.button === 0) this.player.breakBlock();
+                else if (e.button === 2) this.player.placeBlock();
+            }
+        });
+        
+        canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+        
+        canvas.addEventListener('wheel', (e) => {
+            if (this.player.isPointerLocked) {
+                e.preventDefault();
+                const delta = Math.sign(e.deltaY);
+                this.player.selectedBlock = ((this.player.selectedBlock - 1 + delta + 5) % 5) + 1;
+                this.player.updateInventoryUI();
+            }
+        });
+        
+        // === CONTROLES MÓVILES ===
+        if (this.player.isMobile) {
+            this.setupMobileControls();
+        }
+    }
+
+    setupMobileControls() {
+        const joystickContainer = document.querySelector('.joystick-container');
+        const joystick = document.getElementById('joystick');
+        let joystickActive = false;
+        let joystickTouch = null;
+        
+        // Joystick
+        joystickContainer.addEventListener('touchstart', (e) => {
+            e.preventDefault();
+            if (joystickTouch === null) {
+                joystickTouch = e.touches[0].identifier;
+                joystickActive = true;
+                this.handleJoystickMove(e.touches[0], joystickContainer, joystick);
+            }
+        });
+        
+        joystickContainer.addEventListener('touchmove', (e) => {
+            e.preventDefault();
+            for (let touch of e.touches) {
+                if (touch.identifier === joystickTouch) {
+                    this.handleJoystickMove(touch, joystickContainer, joystick);
+                    break;
+                }
+            }
+        });
+        
+        const resetJoystick = () => {
+            joystickActive = false;
+            joystickTouch = null;
+            this.player.inputVector.set(0, 0);
+            joystick.style.transform = 'translate(-50%, -50%)';
+        };
+        
+        joystickContainer.addEventListener('touchend', (e) => {
+            let found = false;
+            for (let touch of e.touches) {
+                if (touch.identifier === joystickTouch) {
+                    found = true;
+                    break;
+                }
+            }
+            if (!found) resetJoystick();
+        });
+        
+        joystickContainer.addEventListener('touchcancel', resetJoystick);
+        
+        // Botones de acción
+        document.getElementById('jumpBtn').addEventListener('touchstart', (e) => {
+            e.preventDefault();
+            this.player.jump();
+        });
+        
+        document.getElementById('buildBtn').addEventListener('touchstart', (e) => {
+            e.preventDefault();
+            this.player.placeBlock();
+        });
+        
+        document.getElementById('breakBtn').addEventListener('touchstart', (e) => {
+            e.preventDefault();
+            this.player.breakBlock();
+        });
+        
+        // Control de cámara táctil
+        let cameraTouch = null;
+        let lastTouchX = 0;
+        let lastTouchY = 0;
+        const canvas = document.getElementById('gameCanvas');
+        
+        canvas.addEventListener('touchstart', (e) => {
+            // Encontrar un toque para la cámara (lado derecho de la pantalla)
+            for (let touch of e.touches) {
+                if (touch.clientX > window.innerWidth * 0.4 && cameraTouch === null) {
+                    cameraTouch = touch.identifier;
+                    lastTouchX = touch.clientX;
+                    lastTouchY = touch.clientY;
+                    break;
+                }
+            }
+        });
+        
+        canvas.addEventListener('touchmove', (e) => {
+            for (let touch of e.touches) {
+                if (touch.identifier === cameraTouch) {
+                    const deltaX = touch.clientX - lastTouchX;
+                    const deltaY = touch.clientY - lastTouchY;
+                    
+                    this.player.rotation.y -= deltaX * this.player.touchSensitivity;
+                    this.player.rotation.x -= deltaY * this.player.touchSensitivity;
+                    this.player.rotation.x = Math.max(-Math.PI/2, Math.min(Math.PI/2, this.player.rotation.x));
+                    
+                    lastTouchX = touch.clientX;
+                    lastTouchY = touch.clientY;
+                    break;
+                }
+            }
+        });
+        
+        canvas.addEventListener('touchend', (e) => {
+            let found = false;
+            for (let touch of e.touches) {
+                if (touch.identifier === cameraTouch) {
+                    found = true;
+                    break;
+                }
+            }
+            if (!found) cameraTouch = null;
+        });
+    }
+
+    handleJoystickMove(touch, container, joystick) {
+        const rect = container.getBoundingClientRect();
+        const centerX = rect.left + rect.width / 2;
+        const centerY = rect.top + rect.height / 2;
+        
+        let x = (touch.clientX - centerX) / (rect.width / 2);
+        let y = (touch.clientY - centerY) / (rect.height / 2);
+        
+        // Limitar al círculo
+        const distance = Math.sqrt(x * x + y * y);
+        if (distance > 1) {
+            x /= distance;
+            y /= distance;
+        }
+        
+        this.player.inputVector.set(x, y);
+        
+        // Actualizar visual
+        joystick.style.transform = `translate(${-50 + x * 35}%, ${-50 + y * 35}%)`;
+    }
+}
+class Game {
+    constructor() {
+        this.canvas = null;
+        this.scene = null;
+        this.camera = null;
+        this.renderer = null;
+        this.chunkManager = null;
+        this.player = null;
+        this.skyManager = null;
+        this.waterManager = null;
+        
+        this.lastTime = 0;
+        this.frameCount = 0;
+        this.fpsTime = 0;
+        this.isPaused = false;
+        this.blockCount = 0;
+        this.showDebug = false;
+        
+        this.time = 0;
+    }
+
+    init() {
+        // Verificar que Three.js esté cargado
+        if (typeof THREE === 'undefined') {
+            console.error('Three.js no se cargó correctamente');
+            document.getElementById('loadingScreen').innerHTML = '<h2>Error al cargar el juego</h2><p>Por favor, recarga la página</p>';
+            return false;
+        }
+
+        // Inicialización básica
+        this.canvas = document.getElementById('gameCanvas');
+        this.scene = new THREE.Scene();
+        this.camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+        
+        try {
+            this.renderer = new THREE.WebGLRenderer({ 
+                canvas: this.canvas, 
+                antialias: true,
+                powerPreference: "high-performance"
+            });
+            this.renderer.setSize(window.innerWidth, window.innerHeight);
+            this.renderer.shadowMap.enabled = true;
+            this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+            this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+        } catch (error) {
+            console.error('Error al crear el renderer:', error);
+            document.getElementById('loadingScreen').innerHTML = '<h2>Error: WebGL no soportado</h2><p>Tu navegador no soporta WebGL</p>';
+            return false;
+        }
+        
+        // Fog para mejor rendimiento y atmósfera
+        this.scene.fog = new THREE.Fog(0x87CEEB, 50, 300);
+        
+        // Inicializar sistemas
+        this.skyManager = new SkyManager();
+        this.waterManager = new WaterManager();
+        this.chunkManager = new ChunkManager();
+        this.player = new Player();
+        
+        // Setup eventos
+        this.setupEvents();
+        
+        return true;
+    }
+
+    setupEvents() {
+        // Window resize
+        window.addEventListener('resize', () => {
+            this.camera.aspect = window.innerWidth / window.innerHeight;
+            this.camera.updateProjectionMatrix();
+            this.renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+
+        // Inventory clicks
+        document.querySelectorAll('.inventory-slot').forEach((slot, index) => {
+            slot.addEventListener('click', () => {
+                this.player.selectedBlock = index + 1;
+                this.player.updateInventoryUI();
+            });
+        });
+
+        // Pause button
+        document.getElementById('pauseBtn').addEventListener('click', () => {
+            this.isPaused = !this.isPaused;
+            document.getElementById('pauseMenu').style.display = this.isPaused ? 'block' : 'none';
+            if (this.isPaused && !this.player.isMobile) {
+                document.exitPointerLock();
+            }
+        });
+
+        // ESC para pausar
+        document.addEventListener('keydown', (e) => {
+            if (e.code === 'Escape') {
+                this.isPaused = true;
+                document.getElementById('pauseMenu').style.display = 'block';
+            }
+        });
+
+        // Prevenir zoom en móviles
+        document.addEventListener('gesturestart', e => e.preventDefault());
+        document.addEventListener('gesturechange', e => e.preventDefault());
+        
+        // Prevenir scroll
+        document.body.addEventListener('touchmove', e => {
+            if (e.target === this.canvas) {
+                e.preventDefault();
+            }
+        }, { passive: false });
+    }
+
+    animate(currentTime) {
+        requestAnimationFrame((time) => this.animate(time));
+        
+        if (this.isPaused) return;
+        
+        const deltaTime = (currentTime - this.lastTime) / 1000;
+        this.lastTime = currentTime;
+        this.time += deltaTime;
+        
+        // Limitar deltaTime
+        const clampedDeltaTime = Math.min(deltaTime, 0.05);
+        
+        // Update FPS
+        this.frameCount++;
+        this.fpsTime += deltaTime;
+        if (this.fpsTime >= 1.0) {
+            document.getElementById('fps').textContent = Math.round(this.frameCount / this.fpsTime);
+            this.frameCount = 0;
+            this.fpsTime = 0;
+        }
+        
+        // Updates
+        this.player.update(clampedDeltaTime);
+        this.skyManager.update(clampedDeltaTime);
+        this.waterManager.update(this.time);
+        
+        // Update chunks
+        const chunkCount = this.chunkManager.updateChunks(this.player.position.x, this.player.position.z);
+        
+        // Update HUD
+        document.getElementById('chunks').textContent = chunkCount;
+        document.getElementById('blocks').textContent = this.blockCount.toLocaleString();
+        document.getElementById('position').textContent = 
+            `${Math.floor(this.player.position.x)}, ${Math.floor(this.player.position.y)}, ${Math.floor(this.player.position.z)}`;
+        
+        // Render
+        this.renderer.render(this.scene, this.camera);
+    }
+
+    start() {
+        // Loading
+        let loadProgress = 0;
+        const loadingSteps = [
+            { progress: 20, message: 'Inicializando motor...' },
+            { progress: 40, message: 'Generando terreno...' },
+            { progress: 60, message: 'Creando biomas...' },
+            { progress: 80, message: 'Añadiendo agua y cielo...' },
+            { progress: 100, message: '¡Listo!' }
+        ];
+        
+        let currentStep = 0;
+        const loadingInterval = setInterval(() => {
+            if (currentStep < loadingSteps.length) {
+                const step = loadingSteps[currentStep];
+                loadProgress = step.progress;
+                document.getElementById('loadingProgress').textContent = `${loadProgress}% - ${step.message}`;
+                currentStep++;
+                
+                if (loadProgress >= 100) {
+                    setTimeout(() => {
+                        document.getElementById('loadingScreen').style.display = 'none';
+                        this.animate(0);
+                    }, 500);
+                    clearInterval(loadingInterval);
+                }
+            }
+        }, 400);
+    }
+}
+// Variable global para el juego
+window.game = null;
+
+// Esperar a que Three.js se cargue
+window.addEventListener('load', function() {
+    window.game = new Game();
+    if (window.game.init()) {
+        window.game.start();
+    }
+});
+
+// UI Functions globales
+window.resumeGame = function() {
+    window.game.isPaused = false;
+    document.getElementById('pauseMenu').style.display = 'none';
+    if (!window.game.player.isMobile) {
+        window.game.canvas.requestPointerLock();
+    }
+}
+
+window.toggleSound = function() {
+    const btn = event.target;
+    btn.textContent = btn.textContent.includes('ON') ? 'Sonido: OFF' : 'Sonido: ON';
+}
+
+window.resetWorld = function() {
+    // Limpiar chunks
+    window.game.chunkManager.chunks.forEach(chunk => {
+        window.game.scene.remove(chunk.mesh);
+        chunk.mesh.traverse((child) => {
+            if (child.geometry) child.geometry.dispose();
+        });
+    });
+    window.game.chunkManager.chunks.clear();
+    
+    // Limpiar agua
+    window.game.waterManager.waterMeshes.forEach(mesh => {
+        window.game.scene.remove(mesh);
+    });
+    window.game.waterManager.waterMeshes.clear();
+    
+    // Generar nueva semilla
+    window.game.chunkManager.seed = Math.random() * 10000;
+    window.game.chunkManager.noise = new SimplexNoise(window.game.chunkManager.seed);
+    
+    // Resetear jugador
+    window.game.player.position.set(0, 30, 0);
+    window.game.player.velocity.set(0, 0, 0);
+    window.game.player.rotation.set(0, 0, 0);
+    
+    window.resumeGame();
+}
+# CraftWorld Mobile - Professional Edition
+
+Un juego tipo Minecraft desarrollado con Three.js, optimizado para navegadores móviles y de escritorio.
+
+## 🎮 Características
+
+- **Generación procedural de mundos** con múltiples biomas
+- **Sistema de chunks** para optimización de rendimiento
+- **Física realista** con gravedad y colisiones
+- **Controles móviles** con joystick virtual
+- **Sistema de construcción/destrucción** de bloques
+- **Ciclo día/noche** con iluminación dinámica
+- **Agua animada** con física especial
+- **Nubes estilo Minecraft**
+- **Inventario** con 5 tipos de bloques
+
+## 🚀 Cómo ejecutar
+
+1. Descomprime el archivo ZIP
+2. Abre `index.html` en un navegador moderno
+3. ¡Disfruta!
+
+## 🎯 Controles
+
+### PC
+- **WASD/Flechas**: Movimiento
+- **Mouse**: Mirar alrededor
+- **Click izquierdo**: Romper bloque
+- **Click derecho**: Colocar bloque
+- **Espacio**: Saltar
+- **Shift**: Correr
+- **1-5**: Seleccionar bloque
+- **F3**: Debug info
+- **ESC**: Pausa
+
+### Móvil
+- **Joystick izquierdo**: Movimiento
+- **Deslizar derecha**: Mirar alrededor
+- **Botón martillo**: Colocar bloque
+- **Botón pico**: Romper bloque
+- **Botón JUMP**: Saltar
+
+## 🛠️ Tecnologías
+
+- Three.js r128
+- SimplexNoise 2.4.0
+- JavaScript ES6+
+- HTML5 Canvas
+- CSS3
+
+## 📱 Compatibilidad
+
+- Chrome 80+
+- Firefox 75+
+- Safari 13+
+- Edge 80+
+- Chrome Mobile
+- Safari iOS
+
+## 🔧 Personalización
+
+Puedes modificar las constantes en `js/utils/Constants.js` para ajustar:
+- Tamaño de chunks
+- Distancia de renderizado
+- Velocidades de movimiento
+- Tipos de bloques
+- Configuración de biomas
+
+## 📄 Licencia
+
+Este proyecto es de código abierto para fines educativos.
