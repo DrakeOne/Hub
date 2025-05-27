@@ -411,8 +411,9 @@ class ChunkManager {
                 positions.length
             );
             
-            instancedMesh.castShadow = true;
-            instancedMesh.receiveShadow = true;
+            // QUITAR SOMBRAS
+            instancedMesh.castShadow = false;
+            instancedMesh.receiveShadow = false;
             
             // Usar object pool para la matriz si está disponible
             const matrix = this.objectPool ? 
