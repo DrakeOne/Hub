@@ -96,8 +96,8 @@ class Game {
                 powerPreference: "high-performance"
             });
             this.renderer.setSize(window.innerWidth, window.innerHeight);
-            this.renderer.shadowMap.enabled = true;
-            this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+            // QUITAR SOMBRAS
+            this.renderer.shadowMap.enabled = false; // Desactivar sombras
             this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
         } catch (error) {
             console.error('Error al crear el renderer:', error);
@@ -230,11 +230,19 @@ class Game {
     }
 
     setupEvents() {
-        // Window resize
+        // Window resize - Mejorado para mantener aspecto consistente
         window.addEventListener('resize', () => {
-            this.camera.aspect = window.innerWidth / window.innerHeight;
+            const width = window.innerWidth;
+            const height = window.innerHeight;
+            
+            this.camera.aspect = width / height;
             this.camera.updateProjectionMatrix();
-            this.renderer.setSize(window.innerWidth, window.innerHeight);
+            this.renderer.setSize(width, height);
+            
+            // Actualizar controles móviles si existen
+            if (this.player.isMobile) {
+                this.updateMobileControlsPosition();
+            }
         });
 
         // Inventory clicks
@@ -328,6 +336,42 @@ class Game {
                 e.preventDefault();
             }
         }, { passive: false });
+        
+        // Detectar orientación en móviles
+        if (this.player.isMobile) {
+            window.addEventListener('orientationchange', () => {
+                setTimeout(() => {
+                    this.updateMobileControlsPosition();
+                }, 100);
+            });
+        }
+    }
+
+    updateMobileControlsPosition() {
+        // Actualizar posición de controles móviles para modo horizontal
+        const isLandscape = window.innerWidth > window.innerHeight;
+        const mobileControls = document.getElementById('mobileControls');
+        const actionButtons = document.getElementById('actionButtons');
+        
+        if (mobileControls && actionButtons) {
+            if (isLandscape) {
+                // Modo horizontal - ajustar posiciones
+                mobileControls.style.display = 'flex';
+                actionButtons.style.display = 'flex';
+                mobileControls.style.bottom = '20px';
+                mobileControls.style.left = '20px';
+                actionButtons.style.bottom = '20px';
+                actionButtons.style.right = '20px';
+            } else {
+                // Modo vertical
+                mobileControls.style.display = 'flex';
+                actionButtons.style.display = 'flex';
+                mobileControls.style.bottom = '100px';
+                mobileControls.style.left = '20px';
+                actionButtons.style.bottom = '100px';
+                actionButtons.style.right = '20px';
+            }
+        }
     }
 
     downloadDebugLog(logContent) {
@@ -489,6 +533,11 @@ class Game {
                     setTimeout(() => {
                         document.getElementById('loadingScreen').style.display = 'none';
                         this.animate(0);
+                        
+                        // Actualizar controles móviles después de cargar
+                        if (this.player.isMobile) {
+                            this.updateMobileControlsPosition();
+                        }
                     }, 500);
                     clearInterval(loadingInterval);
                 }
