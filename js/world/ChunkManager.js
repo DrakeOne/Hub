@@ -6,22 +6,22 @@ class ChunkManager {
         this.renderDistance = CONSTANTS.RENDER_DISTANCE;
         this.seed = Math.random() * 10000;
         
-        // Inicializar SimplexNoise
+        // Initialize SimplexNoise
         this.noise = new SimplexNoise(this.seed);
         
-        // Inicializar proveedor de biomas 3D
+        // Initialize 3D biome provider
         this.biomeProvider = new BiomeProvider3D(this.seed);
         
         this.blockTypes = CONSTANTS.BLOCK_TYPES;
         
-        // Usar object pool si está disponible, sino crear normalmente
+        // Use object pool if available, otherwise create normally
         this.blockGeometry = window.objectPool ? 
             window.objectPool.getBoxGeometry(1, 1, 1) : 
             new THREE.BoxGeometry(1, 1, 1);
             
         this.materials = {};
         
-        // Pre-crear materiales usando el pool si está disponible
+        // Pre-create materials using pool if available
         for (let type in this.blockTypes) {
             if (this.blockTypes[type]) {
                 this.materials[type] = window.objectPool ?
@@ -30,34 +30,34 @@ class ChunkManager {
             }
         }
 
-        // Parámetros de generación 3D
+        // 3D generation parameters
         this.generationParams = CONSTANTS.GENERATION_3D;
         
-        // Sistema de logging para debug
+        // Debug logging system
         this.debugLogger = new ChunkDebugLogger();
         
-        // Optimización de renderizado
+        // Rendering optimization
         this.frustum = new THREE.Frustum();
         this.cameraMatrix = new THREE.Matrix4();
         
-        // Referencia al object pool
+        // Reference to object pool
         this.objectPool = window.objectPool || null;
         
-        // Referencia al chunk loader
+        // Reference to chunk loader
         this.chunkLoader = window.chunkLoader || null;
         
-        // Referencia al sistema de persistencia
+        // Reference to persistence system
         this.blockPersistence = window.blockPersistence || null;
         
-        // Control de carga asíncrona
-        this.useAsyncLoading = true; // Activar/desactivar carga asíncrona
-        this.loadingChunks = new Set(); // Chunks que se están cargando
+        // Async loading control
+        this.useAsyncLoading = true;
+        this.loadingChunks = new Set();
         
-        // Sistema de prioridad de chunks
+        // Chunk priority system
         this.chunkPriorities = new Map();
         this.lastPlayerChunk = { x: null, z: null };
         
-        // Control de velocidad del jugador para predicción
+        // Player velocity tracking for prediction
         this.playerVelocity = { x: 0, z: 0 };
         this.lastPlayerPos = { x: 0, z: 0 };
         this.lastUpdateTime = performance.now();
@@ -67,46 +67,46 @@ class ChunkManager {
         return `${Math.floor(x / this.chunkSize)},${Math.floor(z / this.chunkSize)}`;
     }
 
-    // Calcular densidad 3D mejorada con biomas 3D
+    // Calculate 3D density with 3D biomes
     calculateDensity(worldX, worldY, worldZ) {
-        // Obtener bioma 3D
+        // Get 3D biome
         const biomeId = this.biomeProvider.getBiome3D(worldX, worldY, worldZ);
         const biomeData = CONSTANTS.BIOME_3D.BIOMES[biomeId];
         
-        // Base density con altura del bioma
+        // Base density with biome height
         let density = biomeData.baseHeight - worldY;
         
-        // Aplicar modificador del bioma
+        // Apply biome modifier
         density *= biomeData.densityModifier;
         
-        // Ruido 3D primario (formas grandes)
+        // Primary 3D noise (large forms)
         const primaryNoise = this.noise.noise3D(
             worldX * this.generationParams.NOISE_SCALES.primary,
             worldY * this.generationParams.NOISE_SCALES.primary * 0.5,
             worldZ * this.generationParams.NOISE_SCALES.primary
         );
         
-        // Ruido 3D secundario (variaciones medianas)
+        // Secondary 3D noise (medium variations)
         const secondaryNoise = this.noise.noise3D(
             worldX * this.generationParams.NOISE_SCALES.secondary + 100,
             worldY * this.generationParams.NOISE_SCALES.secondary * 0.5 + 100,
             worldZ * this.generationParams.NOISE_SCALES.secondary + 100
         );
         
-        // Ruido 3D de detalle (variaciones pequeñas)
+        // Detail 3D noise (small variations)
         const detailNoise = this.noise.noise3D(
             worldX * this.generationParams.NOISE_SCALES.detail + 200,
             worldY * this.generationParams.NOISE_SCALES.detail * 0.5 + 200,
             worldZ * this.generationParams.NOISE_SCALES.detail + 200
         );
         
-        // Aplicar ruidos con amplitudes basadas en la variación de altura del bioma
+        // Apply noise with amplitudes based on biome height variation
         const heightVar = biomeData.heightVariation;
         density += primaryNoise * this.generationParams.NOISE_AMPLITUDES.primary * heightVar;
         density += secondaryNoise * this.generationParams.NOISE_AMPLITUDES.secondary * heightVar * 0.5;
         density += detailNoise * this.generationParams.NOISE_AMPLITUDES.detail * heightVar * 0.25;
         
-        // Cuevas 3D solo bajo tierra
+        // 3D caves only underground
         if (worldY < biomeData.baseHeight - 5) {
             const caveNoise = this.noise.noise3D(
                 worldX * this.generationParams.NOISE_SCALES.cave,
@@ -120,20 +120,20 @@ class ChunkManager {
                 worldZ * this.generationParams.NOISE_SCALES.cave * 2 + 1000
             );
             
-            // Sistema de cuevas tipo queso suizo
+            // Swiss cheese cave system
             if (Math.abs(caveNoise) > biomeData.caveThreshold || 
                 Math.abs(caveNoise2) > biomeData.caveThreshold * 0.8) {
                 density -= 50;
             }
             
-            // Cuevas tipo espagueti
+            // Spaghetti caves
             const spaghettiCave = Math.abs(caveNoise * caveNoise2);
             if (spaghettiCave > 0.3 && worldY < biomeData.baseHeight - 10) {
                 density -= 30;
             }
         }
         
-        // Evitar generación bajo Y=0
+        // Avoid generation below Y=0
         if (worldY < 0) {
             density += Math.abs(worldY) * 2;
         }
@@ -144,55 +144,55 @@ class ChunkManager {
     generateChunk(chunkX, chunkZ) {
         const startTime = performance.now();
         
-        // USAR NUEVA CLASE ChunkData OPTIMIZADA
+        // USE NEW OPTIMIZED ChunkData CLASS
         const chunkData = new ChunkData(this.chunkSize, this.chunkHeight, this.chunkSize);
         
         const chunk = {
             x: chunkX,
             z: chunkZ,
-            data: chunkData, // Usar ChunkData en lugar de Map
+            data: chunkData,
             mesh: new THREE.Group(),
             isDirty: true,
             biomes: new Map(),
             generationTime: 0
         };
 
-        // Log inicio de generación
+        // Log generation start
         if (this.debugLogger.isLogging) {
             this.debugLogger.logChunkGeneration(chunkX, chunkZ, 'start');
         }
 
-        // Generar terreno usando densidad 3D y biomas 3D
+        // Generate terrain using 3D density and biomes
         let blockCount = 0;
         for (let x = 0; x < this.chunkSize; x++) {
             for (let z = 0; z < this.chunkSize; z++) {
                 const worldX = chunkX * this.chunkSize + x;
                 const worldZ = chunkZ * this.chunkSize + z;
                 
-                // Array para almacenar densidades de la columna
+                // Array to store column densities
                 const columnDensities = [];
                 let highestSolidY = -1;
                 
-                // Primera pasada: calcular densidades
+                // First pass: calculate densities
                 for (let y = 0; y < this.chunkHeight; y++) {
                     const density = this.calculateDensity(worldX, y, worldZ);
                     columnDensities[y] = density;
                     
                     if (density > this.generationParams.DENSITY_THRESHOLD) {
-                        chunkData.setBlock(x, y, z, 3); // Piedra por defecto
+                        chunkData.setBlock(x, y, z, 3); // Default stone
                         blockCount++;
                         highestSolidY = Math.max(highestSolidY, y);
                     }
                 }
                 
-                // Segunda pasada: aplicar superficie y minerales
+                // Second pass: apply surface and ores
                 if (highestSolidY > -1) {
                     this.applySurfaceAndOres(chunk, x, z, worldX, worldZ, columnDensities);
                 }
             }
         }
         
-        // IMPORTANTE: Aplicar cambios guardados del jugador
+        // IMPORTANT: Apply saved player changes
         if (this.blockPersistence) {
             const hasChanges = this.blockPersistence.applyChangesToChunk(chunk, this.chunkSize);
             if (hasChanges) {
@@ -200,7 +200,7 @@ class ChunkManager {
             }
         }
 
-        // Añadir agua si es necesario
+        // Add water if necessary
         const centerBiome = this.biomeProvider.getBiome3D(
             chunkX * this.chunkSize + this.chunkSize / 2,
             CONSTANTS.WATER_LEVEL,
@@ -213,7 +213,7 @@ class ChunkManager {
 
         chunk.generationTime = performance.now() - startTime;
         
-        // Log fin de generación
+        // Log generation end
         if (this.debugLogger.isLogging) {
             this.debugLogger.logChunkGeneration(chunkX, chunkZ, 'end', {
                 blockCount: chunkData.blockCount,
@@ -229,7 +229,7 @@ class ChunkManager {
     applySurfaceAndOres(chunk, x, z, worldX, worldZ, columnDensities) {
         let surfaceY = -1;
         
-        // Encontrar la superficie
+        // Find surface
         for (let y = this.chunkHeight - 1; y >= 0; y--) {
             if (chunk.data.getBlock(x, y, z) !== 0) {
                 surfaceY = y;
@@ -239,26 +239,26 @@ class ChunkManager {
         
         if (surfaceY === -1) return;
         
-        // Obtener bioma de la superficie
+        // Get surface biome
         const surfaceBiome = this.biomeProvider.getBiome3D(worldX, surfaceY, worldZ);
         const biomeData = CONSTANTS.BIOME_3D.BIOMES[surfaceBiome];
         
-        // Aplicar bloques de superficie
+        // Apply surface blocks
         for (let y = surfaceY; y >= Math.max(0, surfaceY - 5); y--) {
             if (chunk.data.getBlock(x, y, z) === 0) continue;
             
             const depth = surfaceY - y;
             
             if (depth === 0) {
-                // Superficie
+                // Surface
                 chunk.data.setBlock(x, y, z, biomeData.surfaceBlock);
             } else if (depth <= 3) {
-                // Subsuperficie
+                // Subsurface
                 chunk.data.setBlock(x, y, z, biomeData.subsurfaceBlock);
             }
         }
         
-        // Generar minerales
+        // Generate ores
         this.generateOres(chunk, x, z, worldX, worldZ);
     }
 
@@ -276,7 +276,7 @@ class ChunkManager {
             for (let y = config.minY; y <= config.maxY && y < this.chunkHeight; y++) {
                 if (chunk.data.getBlock(x, y, z) === 0) continue;
                 
-                // Usar ruido para distribución de minerales
+                // Use noise for ore distribution
                 const oreNoise = this.noise.noise3D(
                     worldX * this.generationParams.NOISE_SCALES.ore + type * 1000,
                     y * this.generationParams.NOISE_SCALES.ore,
@@ -284,7 +284,7 @@ class ChunkManager {
                 );
                 
                 if (oreNoise > 1 - config.chance * 10) {
-                    // Generar veta de mineral
+                    // Generate ore vein
                     this.generateOreVein(chunk, x, y, z, type, config.veinSize);
                 }
             }
@@ -298,12 +298,12 @@ class ChunkManager {
         while (positions.length > 0 && placed.size < veinSize) {
             const [x, y, z] = positions.shift();
             
-            // Colocar mineral si hay piedra
+            // Place ore if there's stone
             if (chunk.data.getBlock(x, y, z) === 3) {
                 chunk.data.setBlock(x, y, z, oreType);
             }
             
-            // Expandir a bloques adyacentes
+            // Expand to adjacent blocks
             const directions = [
                 [1, 0, 0], [-1, 0, 0],
                 [0, 1, 0], [0, -1, 0],
@@ -332,17 +332,28 @@ class ChunkManager {
     buildChunkMesh(chunk) {
         const startTime = performance.now();
         
-        // Log inicio de construcción de mesh
+        // Ensure chunk has required properties
+        if (!chunk || !chunk.data) {
+            console.error('Invalid chunk passed to buildChunkMesh');
+            return;
+        }
+        
+        // Ensure mesh exists
+        if (!chunk.mesh) {
+            chunk.mesh = new THREE.Group();
+        }
+        
+        // Log mesh building start
         if (this.debugLogger.isLogging) {
             this.debugLogger.logMeshBuilding(chunk.x, chunk.z, 'start');
         }
         
-        // Limpiar mesh anterior
+        // Clear previous mesh
         while (chunk.mesh.children.length > 0) {
             const child = chunk.mesh.children[0];
             chunk.mesh.remove(child);
             
-            // Si tenemos object pool, intentar devolver el mesh
+            // Return mesh to pool if available
             if (this.objectPool && child instanceof THREE.Mesh) {
                 this.objectPool.returnMesh(child);
             } else if (child.geometry) {
@@ -350,11 +361,11 @@ class ChunkManager {
             }
         }
 
-        // Agrupar bloques por tipo para instanced rendering
+        // Group blocks by type for instanced rendering
         const blocksByType = {};
         let visibleBlocks = 0;
         
-        // USAR MÉTODO OPTIMIZADO DE ChunkData
+        // USE OPTIMIZED ChunkData METHOD
         const exposedBlocks = chunk.data.getExposedBlocks();
         
         for (let block of exposedBlocks) {
@@ -370,7 +381,7 @@ class ChunkManager {
             visibleBlocks++;
         }
 
-        // Crear instanced meshes para cada tipo de bloque
+        // Create instanced meshes for each block type
         for (let type in blocksByType) {
             const positions = blocksByType[type];
             if (positions.length === 0) continue;
@@ -381,11 +392,11 @@ class ChunkManager {
                 positions.length
             );
             
-            // QUITAR SOMBRAS
+            // DISABLE SHADOWS
             instancedMesh.castShadow = false;
             instancedMesh.receiveShadow = false;
             
-            // Usar object pool para la matriz si está disponible
+            // Use object pool for matrix if available
             const matrix = this.objectPool ? 
                 this.objectPool.getMatrix4() : 
                 new THREE.Matrix4();
@@ -395,23 +406,27 @@ class ChunkManager {
                 instancedMesh.setMatrixAt(i, matrix);
             });
             
-            // Devolver la matriz al pool si lo usamos
+            // Return matrix to pool if used
             if (this.objectPool) {
                 this.objectPool.returnMatrix4(matrix);
             }
             
             instancedMesh.instanceMatrix.needsUpdate = true;
-            instancedMesh.frustumCulled = false; // Desactivar frustum culling por mesh individual
+            instancedMesh.frustumCulled = false;
             chunk.mesh.add(instancedMesh);
         }
 
         chunk.isDirty = false;
-        chunk.mesh.frustumCulled = false; // Importante: desactivar frustum culling del grupo
-        window.game.scene.add(chunk.mesh);
+        chunk.mesh.frustumCulled = false;
+        
+        // Add to scene only if game exists
+        if (window.game && window.game.scene) {
+            window.game.scene.add(chunk.mesh);
+        }
         
         const buildTime = performance.now() - startTime;
         
-        // Log fin de construcción
+        // Log mesh building end
         if (this.debugLogger.isLogging) {
             this.debugLogger.logMeshBuilding(chunk.x, chunk.z, 'end', {
                 visibleBlocks,
@@ -420,20 +435,17 @@ class ChunkManager {
             });
         }
         
-        // Actualizar contador de bloques
-        window.game.blockCount = 0;
-        this.chunks.forEach(c => {
-            window.game.blockCount += c.data.blockCount;
-        });
+        // Update block count
+        this.updateBlockCount();
     }
 
-    // Método mejorado para actualizar chunks con carga predictiva
+    // Improved chunk update method with predictive loading
     updateChunks(playerX, playerZ) {
         const startTime = performance.now();
         const playerChunkX = Math.floor(playerX / this.chunkSize);
         const playerChunkZ = Math.floor(playerZ / this.chunkSize);
         
-        // Calcular velocidad del jugador para predicción
+        // Calculate player velocity for prediction
         const currentTime = performance.now();
         const deltaTime = (currentTime - this.lastUpdateTime) / 1000;
         
@@ -446,16 +458,16 @@ class ChunkManager {
         this.lastPlayerPos.z = playerZ;
         this.lastUpdateTime = currentTime;
         
-        // Log actualización
+        // Log update
         if (this.debugLogger.isLogging) {
             this.debugLogger.logChunkUpdate('start', { playerChunkX, playerChunkZ });
         }
         
-        // Determinar chunks necesarios
+        // Determine needed chunks
         const chunksToLoad = new Set();
         const chunkLoadList = [];
         
-        // Crear lista de chunks con prioridad
+        // Create chunk list with priority
         for (let dx = -this.renderDistance; dx <= this.renderDistance; dx++) {
             for (let dz = -this.renderDistance; dz <= this.renderDistance; dz++) {
                 const chunkX = playerChunkX + dx;
@@ -463,7 +475,7 @@ class ChunkManager {
                 const key = this.getChunkKey(chunkX * this.chunkSize, chunkZ * this.chunkSize);
                 const distance = Math.sqrt(dx * dx + dz * dz);
                 
-                // Solo cargar chunks dentro del radio de render
+                // Only load chunks within render distance
                 if (distance <= this.renderDistance) {
                     chunksToLoad.add(key);
                     
@@ -480,22 +492,21 @@ class ChunkManager {
             }
         }
         
-        // Ordenar por prioridad (menor = más prioritario)
+        // Sort by priority (lower = higher priority)
         chunkLoadList.sort((a, b) => a.priority - b.priority);
         
-        // Si tenemos ChunkLoader y está activada la carga asíncrona
+        // Load chunks asynchronously if ChunkLoader is available
         if (this.chunkLoader && this.useAsyncLoading) {
-            // Cargar chunks asíncronamente con el nuevo sistema mejorado
             for (let { chunkX, chunkZ, key } of chunkLoadList) {
                 this.loadingChunks.add(key);
                 
                 this.chunkLoader.queueChunk(chunkX, chunkZ, playerX, playerZ, (chunk) => {
-                    // Callback cuando el chunk está listo
+                    // Callback when chunk is ready
                     this.onChunkReady(chunk, key);
                 });
             }
             
-            // Carga predictiva basada en velocidad
+            // Predictive loading based on velocity
             if (Math.abs(this.playerVelocity.x) > 1 || Math.abs(this.playerVelocity.z) > 1) {
                 this.chunkLoader.predictivePreload(
                     playerX, 
@@ -505,12 +516,12 @@ class ChunkManager {
                 );
             }
             
-            // Limpiar cache del loader periódicamente
-            if (Math.random() < 0.1) { // 10% de probabilidad cada frame
+            // Clean loader cache periodically
+            if (Math.random() < 0.1) {
                 this.chunkLoader.cleanupCache(playerX, playerZ);
             }
         } else {
-            // Fallback: carga síncrona limitada
+            // Fallback: limited synchronous loading
             const maxSyncChunks = 1;
             for (let i = 0; i < Math.min(chunkLoadList.length, maxSyncChunks); i++) {
                 const { chunkX, chunkZ } = chunkLoadList[i];
@@ -519,10 +530,11 @@ class ChunkManager {
             }
         }
         
-        // Descargar chunks lejanos con un margen
-        const unloadDistance = this.renderDistance + 2; // Margen para evitar recargas frecuentes
-        let chunksUnloaded = 0;
+        // Unload distant chunks with margin
+        const unloadDistance = this.renderDistance + 2;
+        const chunksToUnload = [];
         
+        // Collect chunks to unload (don't modify map while iterating)
         this.chunks.forEach((chunk, key) => {
             const chunkCenterX = chunk.x * this.chunkSize + this.chunkSize / 2;
             const chunkCenterZ = chunk.z * this.chunkSize + this.chunkSize / 2;
@@ -532,28 +544,32 @@ class ChunkManager {
             ) / this.chunkSize;
             
             if (distance > unloadDistance) {
-                this.unloadChunk(chunk, key);
-                chunksUnloaded++;
+                chunksToUnload.push({ chunk, key });
             }
         });
         
-        // Limpiar caché de biomas periódicamente
+        // Unload collected chunks
+        for (let { chunk, key } of chunksToUnload) {
+            this.unloadChunk(chunk, key);
+        }
+        
+        // Clean biome cache periodically
         if (this.chunks.size % 20 === 0) {
             this.biomeProvider.clearCache();
         }
         
-        // Limpiar pools del object pool periódicamente
+        // Clean object pool periodically
         if (this.objectPool && this.chunks.size % 10 === 0) {
             this.objectPool.cleanupPools();
         }
         
         const updateTime = performance.now() - startTime;
         
-        // Log fin de actualización
+        // Log update end
         if (this.debugLogger.isLogging) {
             this.debugLogger.logChunkUpdate('end', {
                 chunksQueued: chunkLoadList.length,
-                chunksUnloaded,
+                chunksUnloaded: chunksToUnload.length,
                 totalChunks: this.chunks.size,
                 updateTime,
                 playerVelocity: Math.sqrt(this.playerVelocity.x ** 2 + this.playerVelocity.z ** 2)
@@ -563,11 +579,11 @@ class ChunkManager {
         return this.chunks.size;
     }
     
-    // Calcular prioridad de chunk basada en posición y movimiento
+    // Calculate chunk priority based on position and movement
     calculateChunkPriority(dx, dz, distance) {
         let priority = distance;
         
-        // Bonus para chunks en la dirección del movimiento
+        // Bonus for chunks in movement direction
         const speed = Math.sqrt(this.playerVelocity.x ** 2 + this.playerVelocity.z ** 2);
         if (speed > 0.1) {
             const velDirX = this.playerVelocity.x / speed;
@@ -583,7 +599,7 @@ class ChunkManager {
             }
         }
         
-        // Prioridad máxima para chunks muy cercanos
+        // Maximum priority for very close chunks
         if (distance <= 1) {
             priority *= 0.1;
         } else if (distance <= 2) {
@@ -593,21 +609,28 @@ class ChunkManager {
         return priority;
     }
     
-    // Callback cuando un chunk está listo
+    // Callback when chunk is ready
     onChunkReady(chunk, key) {
-        // Aplicar cambios guardados
+        // Validate chunk
+        if (!chunk || !chunk.data) {
+            console.error('Invalid chunk received in onChunkReady');
+            this.loadingChunks.delete(key);
+            return;
+        }
+        
+        // Apply saved changes
         if (this.blockPersistence) {
             this.blockPersistence.applyChangesToChunk(chunk, this.chunkSize);
         }
         
-        // Construir mesh
+        // Build mesh
         this.buildChunkMesh(chunk);
         
-        // Agregar a la lista de chunks
+        // Add to chunk list
         this.chunks.set(key, chunk);
         this.loadingChunks.delete(key);
         
-        // Añadir agua si es necesario
+        // Add water if necessary
         const centerBiome = this.biomeProvider.getBiome3D(
             chunk.x * this.chunkSize + this.chunkSize / 2,
             CONSTANTS.WATER_LEVEL,
@@ -618,63 +641,87 @@ class ChunkManager {
             window.game.waterManager.addWaterToChunk(chunk.x, chunk.z, this.chunkSize);
         }
         
-        // Actualizar contador de bloques
+        // Update block count
         this.updateBlockCount();
     }
     
-    // Descargar un chunk - ARREGLADO: Verificar que chunk.mesh existe
+    // FIXED: Robust chunk unloading with proper error handling
     unloadChunk(chunk, key) {
-        // Verificar que el chunk y su mesh existen antes de intentar descargar
-        if (!chunk || !chunk.mesh) {
-            console.warn(`Attempting to unload chunk without mesh: ${key}`);
-            this.chunks.delete(key);
-            return;
-        }
-        
-        // Remover de la escena
-        if (window.game && window.game.scene) {
-            window.game.scene.remove(chunk.mesh);
-        }
-        
-        // Remover agua si existe
-        if (window.game && window.game.waterManager) {
-            window.game.waterManager.removeWaterFromChunk(chunk.x, chunk.z);
-        }
-        
-        // Limpiar geometrías y devolver meshes al pool si es posible
-        chunk.mesh.traverse((child) => {
-            if (this.objectPool && child instanceof THREE.Mesh) {
-                this.objectPool.returnMesh(child);
-            } else if (child.geometry && child.geometry !== this.blockGeometry) {
-                child.geometry.dispose();
+        try {
+            // Validate chunk
+            if (!chunk) {
+                console.warn(`Attempting to unload null chunk: ${key}`);
+                this.chunks.delete(key);
+                return;
             }
             
-            if (child.material && !this.materials[child.material.type]) {
-                child.material.dispose();
+            // Remove from scene if mesh exists
+            if (chunk.mesh && window.game && window.game.scene) {
+                window.game.scene.remove(chunk.mesh);
+                
+                // Clean up mesh children safely
+                if (chunk.mesh.children) {
+                    // Create a copy of children array to avoid modification during iteration
+                    const children = [...chunk.mesh.children];
+                    
+                    for (let child of children) {
+                        chunk.mesh.remove(child);
+                        
+                        // Return to pool or dispose
+                        if (this.objectPool && child instanceof THREE.Mesh) {
+                            this.objectPool.returnMesh(child);
+                        } else {
+                            // Dispose geometry if it's not shared
+                            if (child.geometry && child.geometry !== this.blockGeometry) {
+                                child.geometry.dispose();
+                            }
+                            
+                            // Dispose material if it's not shared
+                            if (child.material && !Object.values(this.materials).includes(child.material)) {
+                                child.material.dispose();
+                            }
+                        }
+                    }
+                }
             }
-        });
-        
-        this.chunks.delete(key);
+            
+            // Remove water if exists
+            if (window.game && window.game.waterManager && chunk.x !== undefined && chunk.z !== undefined) {
+                window.game.waterManager.removeWaterFromChunk(chunk.x, chunk.z);
+            }
+            
+            // Remove from chunks map
+            this.chunks.delete(key);
+            
+        } catch (error) {
+            console.error(`Error unloading chunk ${key}:`, error);
+            // Still try to remove from map even if there was an error
+            this.chunks.delete(key);
+        }
     }
     
-    // Actualizar contador de bloques
+    // Update block count
     updateBlockCount() {
+        if (!window.game) return;
+        
         window.game.blockCount = 0;
         this.chunks.forEach(c => {
-            window.game.blockCount += c.data.blockCount;
+            if (c && c.data && c.data.blockCount) {
+                window.game.blockCount += c.data.blockCount;
+            }
         });
     }
     
-    // Construir mesh de forma asíncrona
+    // Build mesh asynchronously
     buildChunkMeshAsync(chunk) {
-        // Usar el método normal pero asegurarse de que se agregue a la escena
+        // Use normal method but ensure it's added to scene
         this.buildChunkMesh(chunk);
     }
 
-    // Actualizar distancia de renderizado
+    // Update render distance
     setRenderDistance(newDistance) {
         this.renderDistance = Math.max(1, Math.min(10, newDistance));
-        // Forzar actualización de chunks
+        // Force chunk update
         if (window.game && window.game.player) {
             this.updateChunks(window.game.player.position.x, window.game.player.position.z);
         }
@@ -705,7 +752,7 @@ class ChunkManager {
             const changed = chunk.data.setBlock(Math.floor(localX), Math.floor(y), Math.floor(localZ), type);
             
             if (changed) {
-                // Registrar el cambio en el sistema de persistencia
+                // Record change in persistence system
                 if (this.blockPersistence) {
                     this.blockPersistence.recordBlockChange(
                         Math.floor(x), 
@@ -719,7 +766,7 @@ class ChunkManager {
                 chunk.isDirty = true;
                 this.buildChunkMesh(chunk);
                 
-                // Actualizar chunks adyacentes si es necesario
+                // Update adjacent chunks if necessary
                 if (localX === 0 || localX === this.chunkSize - 1 || 
                     localZ === 0 || localZ === this.chunkSize - 1) {
                     this.updateAdjacentChunks(x, z);
@@ -742,19 +789,19 @@ class ChunkManager {
         });
     }
 
-    // Obtener bioma en una posición para el HUD
+    // Get biome at position for HUD
     getBiomeAt(x, y, z) {
         return this.biomeProvider.getBiome3D(x, y, z);
     }
 }
 
-// Clase para logging de debug de chunks
+// Chunk debug logging class
 class ChunkDebugLogger {
     constructor() {
         this.isLogging = false;
         this.logs = [];
         this.startTime = 0;
-        this.maxLogs = 10000; // Límite de logs para evitar overflow
+        this.maxLogs = 10000;
     }
     
     startLogging() {
