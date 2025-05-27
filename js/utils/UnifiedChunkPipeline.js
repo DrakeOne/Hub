@@ -32,12 +32,12 @@ class UnifiedChunkPipeline {
         this.chunkSize = CONSTANTS.CHUNK_SIZE;
         this.chunkHeight = CONSTANTS.CHUNK_HEIGHT;
         
-        // Control de tiempo y rendimiento
+        // Control de tiempo y rendimiento - AJUSTADO PARA MEJOR PERFORMANCE
         this.frameTimeBudget = 16; // ms (60 FPS)
         this.stageTimeLimits = {
-            collision: 3,    // ms máximo para colisión
-            terrain: 6,      // ms máximo para terreno
-            mesh: 7          // ms máximo para mesh
+            collision: 8,    // AUMENTADO de 3ms a 8ms
+            terrain: 10,     // AUMENTADO de 6ms a 10ms
+            mesh: 12         // AUMENTADO de 7ms a 12ms
         };
         
         // Sistema de prioridad
@@ -75,7 +75,8 @@ class UnifiedChunkPipeline {
             averageLoadTime: 0,
             cacheHitRate: 0,
             totalCacheHits: 0,
-            totalCacheMisses: 0
+            totalCacheMisses: 0,
+            chunksProcessedPerFrame: 0
         };
         
         // Pool de objetos para evitar GC
@@ -186,13 +187,6 @@ class UnifiedChunkPipeline {
         const key = this.getChunkKey(chunkX, chunkZ);
         let record = this.chunkRegistry.get(key);
         
-        // DEBUG: Log detallado para cada chunk
-        if (!record) {
-            console.log(`[UCP] Chunk ${chunkX},${chunkZ} no existe en registro, creando...`);
-        } else {
-            console.log(`[UCP] Chunk ${chunkX},${chunkZ} estado actual: ${this.getStateName(record.state)}`);
-        }
-        
         // Si no existe, crear registro
         if (!record) {
             record = this.createChunkRecord(chunkX, chunkZ);
@@ -207,7 +201,6 @@ class UnifiedChunkPipeline {
         
         // Si está procesándose activamente, no hacer nada
         if (this.activeProcessing.has(key)) {
-            console.log(`[UCP] Chunk ${chunkX},${chunkZ} ya está procesándose`);
             return false;
         }
         
@@ -218,7 +211,6 @@ class UnifiedChunkPipeline {
                 record.priority = newPriority;
                 // Re-ordenar cola
                 this.priorityQueue.updatePriority(record);
-                console.log(`[UCP] Actualizada prioridad de chunk ${chunkX},${chunkZ} a ${newPriority.toFixed(2)}`);
             }
             return false;
         }
@@ -233,8 +225,6 @@ class UnifiedChunkPipeline {
             return true;
         }
         
-        // Si está en cualquier otro estado intermedio, no hacer nada
-        console.log(`[UCP] Chunk ${chunkX},${chunkZ} en estado intermedio: ${this.getStateName(record.state)}`);
         return false;
     }
     
@@ -306,11 +296,6 @@ class UnifiedChunkPipeline {
                     break;
                 }
                 
-                // Log cuando empezamos a procesar un nuevo chunk
-                if (!this.activeProcessing.has(record.key)) {
-                    console.log(`[UCP] Procesando chunk ${record.x},${record.z} - Estado: ${this.getStateName(record.state)}`);
-                }
-                
                 // Procesar según estado actual
                 const processTime = this.processChunkStage(record);
                 timeSpent += processTime;
@@ -328,9 +313,12 @@ class UnifiedChunkPipeline {
                 }
             }
             
+            // Actualizar estadística de chunks procesados
+            this.stats.chunksProcessedPerFrame = chunksProcessed;
+            
             // Log cada segundo
             if (frameStart - this.lastFrameTime > 1000) {
-                console.log(`[UCP] Estado: Cola=${this.priorityQueue.size()}, Procesando=${this.activeProcessing.size}, Visible=${this.stats.chunksVisible}, Registrados=${this.chunkRegistry.size}`);
+                console.log(`[UCP] Estado: Cola=${this.priorityQueue.size()}, Procesando=${this.activeProcessing.size}, Visible=${this.stats.chunksVisible}, Registrados=${this.chunkRegistry.size}, Procesados/Frame=${this.stats.chunksProcessedPerFrame}`);
                 this.lastFrameTime = frameStart;
             }
             
@@ -399,7 +387,7 @@ class UnifiedChunkPipeline {
         return performance.now() - startTime;
     }
     
-    // Generar datos de colisión
+    // Generar datos de colisión - OPTIMIZADO
     generateCollisionData(record) {
         const startTime = performance.now();
         
@@ -415,19 +403,27 @@ class UnifiedChunkPipeline {
         }
         
         const chunk = record.chunk;
-        const batchSize = 4; // Procesar de a 4x4 columnas
+        const batchSize = 8; // AUMENTADO de 4 a 8 para procesar más rápido
         
-        // Continuar desde donde quedamos
-        const startX = record.generationProgress.x || 0;
-        const startZ = record.generationProgress.z || 0;
+        // Inicializar progreso si no existe
+        if (!record.generationProgress) {
+            record.generationProgress = { x: 0, z: 0 };
+        }
         
-        for (let bx = startX; bx < this.chunkSize; bx += batchSize) {
-            for (let bz = startZ; bz < this.chunkSize; bz += batchSize) {
+        const startX = record.generationProgress.x;
+        const startZ = record.generationProgress.z;
+        
+        let columnsProcessed = 0;
+        
+        // Procesar columnas
+        outerLoop: for (let bx = startX; bx < this.chunkSize; bx += batchSize) {
+            for (let bz = (bx === startX ? startZ : 0); bz < this.chunkSize; bz += batchSize) {
                 // Verificar tiempo
                 if (performance.now() - startTime > this.stageTimeLimits.collision) {
                     // Guardar progreso y continuar en siguiente frame
                     record.generationProgress.x = bx;
                     record.generationProgress.z = bz;
+                    console.log(`[UCP] Colisión pausada en ${bx},${bz} para chunk ${record.x},${record.z} - Procesadas ${columnsProcessed} columnas`);
                     return;
                 }
                 
@@ -441,21 +437,19 @@ class UnifiedChunkPipeline {
                         
                         // Generar columna básica para colisión
                         this.generateColumnCollision(chunk, x, z, worldX, worldZ);
+                        columnsProcessed++;
                     }
                 }
             }
-            
-            // Reset Z para siguiente fila
-            record.generationProgress.z = 0;
         }
         
         // Colisión completa
         record.stageComplete = true;
         record.generationProgress = { x: 0, z: 0 };
-        console.log(`[UCP] Colisión completa para chunk ${record.x}, ${record.z}`);
+        console.log(`[UCP] Colisión completa para chunk ${record.x}, ${record.z} - Total ${columnsProcessed} columnas`);
     }
     
-    // Generar columna de colisión
+    // Generar columna de colisión - SIMPLIFICADO
     generateColumnCollision(chunk, x, z, worldX, worldZ) {
         // Generar altura básica usando noise
         const baseHeight = 64;
@@ -465,29 +459,38 @@ class UnifiedChunkPipeline {
         const noiseValue = this.chunkManager.noise.noise2D(worldX * 0.01, worldZ * 0.01);
         const height = Math.floor(baseHeight + noiseValue * heightVariation);
         
-        // Fill column with solid blocks up to height
-        for (let y = 0; y < Math.min(height, this.chunkHeight); y++) {
+        // Fill column with solid blocks up to height - OPTIMIZADO
+        const maxY = Math.min(height, this.chunkHeight);
+        for (let y = 0; y < maxY; y++) {
             chunk.data.setBlock(x, y, z, 3); // Stone
         }
     }
     
-    // Generar datos de terreno completos
+    // Generar datos de terreno completos - OPTIMIZADO
     generateTerrainData(record) {
         const startTime = performance.now();
         const chunk = record.chunk;
         
         // Usar el sistema existente del ChunkManager para generar terreno
-        const batchSize = 2; // Más pequeño porque es más complejo
+        const batchSize = 4; // Mantener 4 para terreno porque es más complejo
         
-        const startX = record.generationProgress.x || 0;
-        const startZ = record.generationProgress.z || 0;
+        // Inicializar progreso si no existe
+        if (!record.generationProgress) {
+            record.generationProgress = { x: 0, z: 0 };
+        }
         
-        for (let x = startX; x < this.chunkSize; x += batchSize) {
-            for (let z = startZ; z < this.chunkSize; z += batchSize) {
+        const startX = record.generationProgress.x;
+        const startZ = record.generationProgress.z;
+        
+        let columnsProcessed = 0;
+        
+        outerLoop: for (let x = startX; x < this.chunkSize; x += batchSize) {
+            for (let z = (x === startX ? startZ : 0); z < this.chunkSize; z += batchSize) {
                 // Verificar tiempo
                 if (performance.now() - startTime > this.stageTimeLimits.terrain) {
                     record.generationProgress.x = x;
                     record.generationProgress.z = z;
+                    console.log(`[UCP] Terreno pausado en ${x},${z} para chunk ${record.x},${record.z} - Procesadas ${columnsProcessed} columnas`);
                     return;
                 }
                 
@@ -501,10 +504,10 @@ class UnifiedChunkPipeline {
                         
                         // Generar columna completa con biomas, minerales, etc.
                         this.generateColumnFull(chunk, lx, lz, worldX, worldZ);
+                        columnsProcessed++;
                     }
                 }
             }
-            record.generationProgress.z = 0;
         }
         
         // Aplicar cambios guardados si existen
@@ -515,7 +518,7 @@ class UnifiedChunkPipeline {
         // Terreno completo
         record.stageComplete = true;
         record.generationProgress = { x: 0, z: 0 };
-        console.log(`[UCP] Terreno completo para chunk ${record.x}, ${record.z}`);
+        console.log(`[UCP] Terreno completo para chunk ${record.x}, ${record.z} - Total ${columnsProcessed} columnas`);
     }
     
     // Generar columna completa
