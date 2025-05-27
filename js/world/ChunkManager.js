@@ -43,25 +43,15 @@ class ChunkManager {
         // Reference to object pool
         this.objectPool = window.objectPool || null;
         
-        // Reference to chunk loader
-        this.chunkLoader = window.chunkLoader || null;
-        
         // Reference to persistence system
         this.blockPersistence = window.blockPersistence || null;
         
-        // NUEVO: Inicializar sistema de colisión
-        if (window.collisionSystem) {
-            window.collisionSystem.initialize(this);
-            console.log('[ChunkManager] Sistema de colisión inicializado');
+        // NUEVO: Usar UnifiedChunkPipeline en lugar de sistemas separados
+        this.pipeline = window.unifiedChunkPipeline || null;
+        if (this.pipeline) {
+            this.pipeline.initialize(this);
+            console.log('[ChunkManager] UnifiedChunkPipeline inicializado');
         }
-        
-        // Async loading control
-        this.useAsyncLoading = true;
-        this.loadingChunks = new Set();
-        
-        // Chunk priority system
-        this.chunkPriorities = new Map();
-        this.lastPlayerChunk = { x: null, z: null };
         
         // Player velocity tracking for prediction
         this.playerVelocity = { x: 0, z: 0 };
@@ -145,91 +135,6 @@ class ChunkManager {
         }
         
         return density;
-    }
-
-    generateChunk(chunkX, chunkZ) {
-        const startTime = performance.now();
-        
-        // USE NEW OPTIMIZED ChunkData CLASS
-        const chunkData = new ChunkData(this.chunkSize, this.chunkHeight, this.chunkSize);
-        
-        const chunk = {
-            x: chunkX,
-            z: chunkZ,
-            data: chunkData,
-            mesh: new THREE.Group(),
-            isDirty: true,
-            biomes: new Map(),
-            generationTime: 0
-        };
-
-        // Log generation start
-        if (this.debugLogger.isLogging) {
-            this.debugLogger.logChunkGeneration(chunkX, chunkZ, 'start');
-        }
-
-        // Generate terrain using 3D density and biomes
-        let blockCount = 0;
-        for (let x = 0; x < this.chunkSize; x++) {
-            for (let z = 0; z < this.chunkSize; z++) {
-                const worldX = chunkX * this.chunkSize + x;
-                const worldZ = chunkZ * this.chunkSize + z;
-                
-                // Array to store column densities
-                const columnDensities = [];
-                let highestSolidY = -1;
-                
-                // First pass: calculate densities
-                for (let y = 0; y < this.chunkHeight; y++) {
-                    const density = this.calculateDensity(worldX, y, worldZ);
-                    columnDensities[y] = density;
-                    
-                    if (density > this.generationParams.DENSITY_THRESHOLD) {
-                        chunkData.setBlock(x, y, z, 3); // Default stone
-                        blockCount++;
-                        highestSolidY = Math.max(highestSolidY, y);
-                    }
-                }
-                
-                // Second pass: apply surface and ores
-                if (highestSolidY > -1) {
-                    this.applySurfaceAndOres(chunk, x, z, worldX, worldZ, columnDensities);
-                }
-            }
-        }
-        
-        // IMPORTANT: Apply saved player changes
-        if (this.blockPersistence) {
-            const hasChanges = this.blockPersistence.applyChangesToChunk(chunk, this.chunkSize);
-            if (hasChanges) {
-                console.log(`Applied saved changes to chunk ${chunkX}, ${chunkZ}`);
-            }
-        }
-
-        // Add water if necessary
-        const centerBiome = this.biomeProvider.getBiome3D(
-            chunkX * this.chunkSize + this.chunkSize / 2,
-            CONSTANTS.WATER_LEVEL,
-            chunkZ * this.chunkSize + this.chunkSize / 2
-        );
-        
-        if (centerBiome === 'ocean' || centerBiome === 'deep_ocean') {
-            window.game.waterManager.addWaterToChunk(chunkX, chunkZ, this.chunkSize);
-        }
-
-        chunk.generationTime = performance.now() - startTime;
-        
-        // Log generation end
-        if (this.debugLogger.isLogging) {
-            this.debugLogger.logChunkGeneration(chunkX, chunkZ, 'end', {
-                blockCount: chunkData.blockCount,
-                generationTime: chunk.generationTime,
-                biome: centerBiome
-            });
-        }
-
-        this.chunks.set(this.getChunkKey(chunkX * this.chunkSize, chunkZ * this.chunkSize), chunk);
-        return chunk;
     }
 
     applySurfaceAndOres(chunk, x, z, worldX, worldZ, columnDensities) {
@@ -335,384 +240,36 @@ class ChunkManager {
         }
     }
 
-    buildChunkMesh(chunk) {
-        const startTime = performance.now();
-        
-        // Ensure chunk has required properties
-        if (!chunk || !chunk.data) {
-            console.error('Invalid chunk passed to buildChunkMesh');
-            return;
-        }
-        
-        // Ensure mesh exists
-        if (!chunk.mesh) {
-            chunk.mesh = new THREE.Group();
-        }
-        
-        // Log mesh building start
-        if (this.debugLogger.isLogging) {
-            this.debugLogger.logMeshBuilding(chunk.x, chunk.z, 'start');
-        }
-        
-        // Clear previous mesh
-        while (chunk.mesh.children.length > 0) {
-            const child = chunk.mesh.children[0];
-            chunk.mesh.remove(child);
-            
-            // Return mesh to pool if available
-            if (this.objectPool && child instanceof THREE.Mesh) {
-                this.objectPool.returnMesh(child);
-            } else if (child.geometry) {
-                child.geometry.dispose();
-            }
-        }
-
-        // Group blocks by type for instanced rendering
-        const blocksByType = {};
-        let visibleBlocks = 0;
-        
-        // USE OPTIMIZED ChunkData METHOD
-        const exposedBlocks = chunk.data.getExposedBlocks();
-        
-        for (let block of exposedBlocks) {
-            const type = block.type;
-            if (!blocksByType[type]) {
-                blocksByType[type] = [];
-            }
-            blocksByType[type].push({
-                x: chunk.x * this.chunkSize + block.x,
-                y: block.y,
-                z: chunk.z * this.chunkSize + block.z
-            });
-            visibleBlocks++;
-        }
-
-        // Create instanced meshes for each block type
-        for (let type in blocksByType) {
-            const positions = blocksByType[type];
-            if (positions.length === 0) continue;
-            
-            const instancedMesh = new THREE.InstancedMesh(
-                this.blockGeometry,
-                this.materials[type],
-                positions.length
-            );
-            
-            // DISABLE SHADOWS
-            instancedMesh.castShadow = false;
-            instancedMesh.receiveShadow = false;
-            
-            // Use object pool for matrix if available
-            const matrix = this.objectPool ? 
-                this.objectPool.getMatrix4() : 
-                new THREE.Matrix4();
-                
-            positions.forEach((pos, i) => {
-                matrix.setPosition(pos.x, pos.y, pos.z);
-                instancedMesh.setMatrixAt(i, matrix);
-            });
-            
-            // Return matrix to pool if used
-            if (this.objectPool) {
-                this.objectPool.returnMatrix4(matrix);
-            }
-            
-            instancedMesh.instanceMatrix.needsUpdate = true;
-            instancedMesh.frustumCulled = false;
-            chunk.mesh.add(instancedMesh);
-        }
-
-        chunk.isDirty = false;
-        chunk.mesh.frustumCulled = false;
-        
-        // Add to scene only if game exists
-        if (window.game && window.game.scene) {
-            window.game.scene.add(chunk.mesh);
-        }
-        
-        const buildTime = performance.now() - startTime;
-        
-        // Log mesh building end
-        if (this.debugLogger.isLogging) {
-            this.debugLogger.logMeshBuilding(chunk.x, chunk.z, 'end', {
-                visibleBlocks,
-                buildTime,
-                totalBlocks: chunk.data.blockCount
-            });
-        }
-        
-        // Update block count
-        this.updateBlockCount();
-    }
-
-    // Improved chunk update method with predictive loading
+    // SIMPLIFICADO: Solo actualizar posición del jugador
     updateChunks(playerX, playerZ) {
-        const startTime = performance.now();
-        const playerChunkX = Math.floor(playerX / this.chunkSize);
-        const playerChunkZ = Math.floor(playerZ / this.chunkSize);
-        
-        // NUEVO: Actualizar sistema de colisión con posición del jugador
-        if (window.collisionSystem) {
-            window.collisionSystem.updatePlayerPosition(
-                playerX, 
-                window.game.player.position.y, 
-                playerZ
+        // Si usamos UnifiedChunkPipeline, delegar todo el trabajo
+        if (this.pipeline) {
+            // Calcular velocidad del jugador
+            const currentTime = performance.now();
+            const deltaTime = (currentTime - this.lastUpdateTime) / 1000;
+            
+            if (deltaTime > 0 && this.lastPlayerPos.x !== null) {
+                this.playerVelocity.x = (playerX - this.lastPlayerPos.x) / deltaTime;
+                this.playerVelocity.z = (playerZ - this.lastPlayerPos.z) / deltaTime;
+            }
+            
+            this.lastPlayerPos.x = playerX;
+            this.lastPlayerPos.z = playerZ;
+            this.lastUpdateTime = currentTime;
+            
+            // Actualizar pipeline con posición y velocidad del jugador
+            this.pipeline.updatePlayer(
+                { x: playerX, y: window.game.player.position.y, z: playerZ },
+                { x: this.playerVelocity.x, y: 0, z: this.playerVelocity.z },
+                { x: window.game.player.rotation.x, y: window.game.player.rotation.y }
             );
-        }
-        
-        // Calculate player velocity for prediction
-        const currentTime = performance.now();
-        const deltaTime = (currentTime - this.lastUpdateTime) / 1000;
-        
-        if (deltaTime > 0 && this.lastPlayerPos.x !== null) {
-            this.playerVelocity.x = (playerX - this.lastPlayerPos.x) / deltaTime;
-            this.playerVelocity.z = (playerZ - this.lastPlayerPos.z) / deltaTime;
-        }
-        
-        this.lastPlayerPos.x = playerX;
-        this.lastPlayerPos.z = playerZ;
-        this.lastUpdateTime = currentTime;
-        
-        // Log update
-        if (this.debugLogger.isLogging) {
-            this.debugLogger.logChunkUpdate('start', { playerChunkX, playerChunkZ });
-        }
-        
-        // Determine needed chunks
-        const chunksToLoad = new Set();
-        const chunkLoadList = [];
-        
-        // Create chunk list with priority
-        for (let dx = -this.renderDistance; dx <= this.renderDistance; dx++) {
-            for (let dz = -this.renderDistance; dz <= this.renderDistance; dz++) {
-                const chunkX = playerChunkX + dx;
-                const chunkZ = playerChunkZ + dz;
-                const key = this.getChunkKey(chunkX * this.chunkSize, chunkZ * this.chunkSize);
-                const distance = Math.sqrt(dx * dx + dz * dz);
-                
-                // Only load chunks within render distance
-                if (distance <= this.renderDistance) {
-                    chunksToLoad.add(key);
-                    
-                    if (!this.chunks.has(key) && !this.loadingChunks.has(key)) {
-                        chunkLoadList.push({ 
-                            chunkX, 
-                            chunkZ, 
-                            distance, 
-                            key,
-                            priority: this.calculateChunkPriority(dx, dz, distance)
-                        });
-                    }
-                }
-            }
-        }
-        
-        // Sort by priority (lower = higher priority)
-        chunkLoadList.sort((a, b) => a.priority - b.priority);
-        
-        // Load chunks asynchronously if ChunkLoader is available
-        if (this.chunkLoader && this.useAsyncLoading) {
-            for (let { chunkX, chunkZ, key } of chunkLoadList) {
-                this.loadingChunks.add(key);
-                
-                this.chunkLoader.queueChunk(chunkX, chunkZ, playerX, playerZ, (chunk) => {
-                    // Callback when chunk is ready
-                    this.onChunkReady(chunk, key);
-                });
-            }
             
-            // Predictive loading based on velocity
-            if (Math.abs(this.playerVelocity.x) > 1 || Math.abs(this.playerVelocity.z) > 1) {
-                this.chunkLoader.predictivePreload(
-                    playerX, 
-                    playerZ, 
-                    this.playerVelocity.x, 
-                    this.playerVelocity.z
-                );
-            }
-            
-            // Clean loader cache periodically
-            if (Math.random() < 0.1) {
-                this.chunkLoader.cleanupCache(playerX, playerZ);
-            }
-        } else {
-            // Fallback: limited synchronous loading
-            const maxSyncChunks = 1;
-            for (let i = 0; i < Math.min(chunkLoadList.length, maxSyncChunks); i++) {
-                const { chunkX, chunkZ } = chunkLoadList[i];
-                const chunk = this.generateChunk(chunkX, chunkZ);
-                this.buildChunkMesh(chunk);
-            }
+            return this.chunks.size;
         }
         
-        // Unload distant chunks with margin
-        const unloadDistance = this.renderDistance + 2;
-        const chunksToUnload = [];
-        
-        // Collect chunks to unload (don't modify map while iterating)
-        this.chunks.forEach((chunk, key) => {
-            const chunkCenterX = chunk.x * this.chunkSize + this.chunkSize / 2;
-            const chunkCenterZ = chunk.z * this.chunkSize + this.chunkSize / 2;
-            const distance = Math.sqrt(
-                Math.pow(chunkCenterX - playerX, 2) + 
-                Math.pow(chunkCenterZ - playerZ, 2)
-            ) / this.chunkSize;
-            
-            if (distance > unloadDistance) {
-                chunksToUnload.push({ chunk, key });
-            }
-        });
-        
-        // Unload collected chunks
-        for (let { chunk, key } of chunksToUnload) {
-            this.unloadChunk(chunk, key);
-        }
-        
-        // Clean biome cache periodically
-        if (this.chunks.size % 20 === 0) {
-            this.biomeProvider.clearCache();
-        }
-        
-        // Clean object pool periodically
-        if (this.objectPool && this.chunks.size % 10 === 0) {
-            this.objectPool.cleanupPools();
-        }
-        
-        const updateTime = performance.now() - startTime;
-        
-        // Log update end
-        if (this.debugLogger.isLogging) {
-            this.debugLogger.logChunkUpdate('end', {
-                chunksQueued: chunkLoadList.length,
-                chunksUnloaded: chunksToUnload.length,
-                totalChunks: this.chunks.size,
-                updateTime,
-                playerVelocity: Math.sqrt(this.playerVelocity.x ** 2 + this.playerVelocity.z ** 2)
-            });
-        }
-        
-        return this.chunks.size;
-    }
-    
-    // Calculate chunk priority based on position and movement
-    calculateChunkPriority(dx, dz, distance) {
-        let priority = distance;
-        
-        // Bonus for chunks in movement direction
-        const speed = Math.sqrt(this.playerVelocity.x ** 2 + this.playerVelocity.z ** 2);
-        if (speed > 0.1) {
-            const velDirX = this.playerVelocity.x / speed;
-            const velDirZ = this.playerVelocity.z / speed;
-            
-            const chunkDirX = dx / (distance || 1);
-            const chunkDirZ = dz / (distance || 1);
-            
-            const alignment = velDirX * chunkDirX + velDirZ * chunkDirZ;
-            
-            if (alignment > 0) {
-                priority *= (1 - alignment * 0.5);
-            }
-        }
-        
-        // Maximum priority for very close chunks
-        if (distance <= 1) {
-            priority *= 0.1;
-        } else if (distance <= 2) {
-            priority *= 0.3;
-        }
-        
-        return priority;
-    }
-    
-    // Callback when chunk is ready
-    onChunkReady(chunk, key) {
-        // Validate chunk
-        if (!chunk || !chunk.data) {
-            console.error('Invalid chunk received in onChunkReady');
-            this.loadingChunks.delete(key);
-            return;
-        }
-        
-        // Apply saved changes
-        if (this.blockPersistence) {
-            this.blockPersistence.applyChangesToChunk(chunk, this.chunkSize);
-        }
-        
-        // Build mesh
-        this.buildChunkMesh(chunk);
-        
-        // Add to chunk list
-        this.chunks.set(key, chunk);
-        this.loadingChunks.delete(key);
-        
-        // Add water if necessary
-        const centerBiome = this.biomeProvider.getBiome3D(
-            chunk.x * this.chunkSize + this.chunkSize / 2,
-            CONSTANTS.WATER_LEVEL,
-            chunk.z * this.chunkSize + this.chunkSize / 2
-        );
-        
-        if (centerBiome === 'ocean' || centerBiome === 'deep_ocean') {
-            window.game.waterManager.addWaterToChunk(chunk.x, chunk.z, this.chunkSize);
-        }
-        
-        // Update block count
-        this.updateBlockCount();
-    }
-    
-    // FIXED: Robust chunk unloading with proper error handling
-    unloadChunk(chunk, key) {
-        try {
-            // Validate chunk
-            if (!chunk) {
-                console.warn(`Attempting to unload null chunk: ${key}`);
-                this.chunks.delete(key);
-                return;
-            }
-            
-            // Remove from scene if mesh exists
-            if (chunk.mesh && window.game && window.game.scene) {
-                window.game.scene.remove(chunk.mesh);
-                
-                // Clean up mesh children safely
-                if (chunk.mesh.children) {
-                    // Create a copy of children array to avoid modification during iteration
-                    const children = [...chunk.mesh.children];
-                    
-                    for (let child of children) {
-                        chunk.mesh.remove(child);
-                        
-                        // Return to pool or dispose
-                        if (this.objectPool && child instanceof THREE.Mesh) {
-                            this.objectPool.returnMesh(child);
-                        } else {
-                            // Dispose geometry if it's not shared
-                            if (child.geometry && child.geometry !== this.blockGeometry) {
-                                child.geometry.dispose();
-                            }
-                            
-                            // Dispose material if it's not shared
-                            if (child.material && !Object.values(this.materials).includes(child.material)) {
-                                child.material.dispose();
-                            }
-                        }
-                    }
-                }
-            }
-            
-            // Remove water if exists
-            if (window.game && window.game.waterManager && chunk.x !== undefined && chunk.z !== undefined) {
-                window.game.waterManager.removeWaterFromChunk(chunk.x, chunk.z);
-            }
-            
-            // Remove from chunks map
-            this.chunks.delete(key);
-            
-        } catch (error) {
-            console.error(`Error unloading chunk ${key}:`, error);
-            // Still try to remove from map even if there was an error
-            this.chunks.delete(key);
-        }
+        // Fallback: código antiguo (no debería ejecutarse)
+        console.warn('[ChunkManager] UnifiedChunkPipeline no disponible');
+        return 0;
     }
     
     // Update block count
@@ -726,16 +283,17 @@ class ChunkManager {
             }
         });
     }
-    
-    // Build mesh asynchronously
-    buildChunkMeshAsync(chunk) {
-        // Use normal method but ensure it's added to scene
-        this.buildChunkMesh(chunk);
-    }
 
     // Update render distance
     setRenderDistance(newDistance) {
         this.renderDistance = Math.max(1, Math.min(10, newDistance));
+        
+        // Actualizar distancia en el pipeline
+        if (this.pipeline) {
+            this.pipeline.distances.visible = this.renderDistance;
+            this.pipeline.distances.unload = this.renderDistance + 2;
+        }
+        
         // Force chunk update
         if (window.game && window.game.player) {
             this.updateChunks(window.game.player.position.x, window.game.player.position.z);
@@ -743,9 +301,9 @@ class ChunkManager {
     }
 
     getBlock(x, y, z) {
-        // NUEVO: Primero intentar con el sistema de colisión si está disponible
-        if (window.collisionSystem) {
-            return window.collisionSystem.getBlock(x, y, z);
+        // NUEVO: Usar UnifiedChunkPipeline si está disponible
+        if (this.pipeline) {
+            return this.pipeline.getBlock(x, y, z);
         }
         
         // Fallback al sistema original
@@ -785,7 +343,18 @@ class ChunkManager {
                 }
                 
                 chunk.isDirty = true;
-                this.buildChunkMesh(chunk);
+                
+                // NUEVO: Reconstruir mesh usando el pipeline
+                if (this.pipeline) {
+                    const record = this.pipeline.chunkRegistry.get(chunkKey);
+                    if (record && record.state === this.pipeline.ChunkState.VISIBLE) {
+                        this.pipeline.buildChunkMesh(record);
+                        this.pipeline.makeChunkVisible(record);
+                    }
+                } else {
+                    // Fallback
+                    this.buildChunkMesh(chunk);
+                }
                 
                 // Update adjacent chunks if necessary
                 if (localX === 0 || localX === this.chunkSize - 1 || 
@@ -805,7 +374,17 @@ class ChunkManager {
             
             if (adjacentChunk && !adjacentChunk.isDirty) {
                 adjacentChunk.isDirty = true;
-                this.buildChunkMesh(adjacentChunk);
+                
+                // NUEVO: Usar pipeline si está disponible
+                if (this.pipeline) {
+                    const record = this.pipeline.chunkRegistry.get(adjacentKey);
+                    if (record && record.state === this.pipeline.ChunkState.VISIBLE) {
+                        this.pipeline.buildChunkMesh(record);
+                        this.pipeline.makeChunkVisible(record);
+                    }
+                } else {
+                    this.buildChunkMesh(adjacentChunk);
+                }
             }
         });
     }
@@ -813,6 +392,11 @@ class ChunkManager {
     // Get biome at position for HUD
     getBiomeAt(x, y, z) {
         return this.biomeProvider.getBiome3D(x, y, z);
+    }
+    
+    // Método legacy para compatibilidad (no se usa con UnifiedChunkPipeline)
+    buildChunkMesh(chunk) {
+        console.warn('[ChunkManager] buildChunkMesh llamado sin UnifiedChunkPipeline');
     }
 }
 
