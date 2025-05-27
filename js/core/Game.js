@@ -19,6 +19,7 @@ class Game {
         this.showTerrainDebug = false; // Nuevo para P
         
         this.time = 0;
+        this.fps = 60; // Inicializar FPS
         
         // Para capturar errores
         this.lastError = null;
@@ -32,6 +33,11 @@ class Game {
         
         // Frustum culler
         this.frustumCuller = window.frustumCuller || null;
+        
+        // Referencias UI
+        this.hud = null;
+        this.menu = null;
+        this.gameRenderer = null;
     }
 
     setupErrorHandling() {
@@ -89,18 +95,12 @@ class Game {
             1000  // Far plane
         );
         
-        try {
-            this.renderer = new THREE.WebGLRenderer({ 
-                canvas: this.canvas, 
-                antialias: true,
-                powerPreference: "high-performance"
-            });
-            this.renderer.setSize(window.innerWidth, window.innerHeight);
-            // QUITAR SOMBRAS
-            this.renderer.shadowMap.enabled = false; // Desactivar sombras
-            this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-        } catch (error) {
-            console.error('Error al crear el renderer:', error);
+        // Inicializar renderer usando la clase Renderer
+        this.gameRenderer = new Renderer();
+        this.renderer = this.gameRenderer.initialize(this.canvas);
+        
+        if (!this.renderer) {
+            console.error('Error al crear el renderer');
             document.getElementById('loadingScreen').innerHTML = '<h2>Error: WebGL no soportado</h2><p>Tu navegador no soporta WebGL</p>';
             return false;
         }
@@ -114,6 +114,10 @@ class Game {
         this.chunkManager = new ChunkManager();
         this.player = new Player();
         
+        // Inicializar UI
+        this.hud = new HUD();
+        this.menu = new Menu();
+        
         // Setup eventos
         this.setupEvents();
         
@@ -122,6 +126,10 @@ class Game {
         
         // Crear elemento de debug de terreno
         this.createTerrainDebugElement();
+        
+        // IMPORTANTE: Generar chunks iniciales alrededor del jugador
+        console.log('[Game] Generando chunks iniciales...');
+        this.chunkManager.updateChunks(this.player.position.x, this.player.position.z);
         
         return true;
     }
@@ -176,6 +184,16 @@ class Game {
         debugInfo += `Render Distance: ${this.chunkManager.renderDistance}<br>`;
         debugInfo += `Total Blocks: ${this.blockCount.toLocaleString()}<br><br>`;
         
+        // Información del UnifiedChunkPipeline
+        if (window.unifiedChunkPipeline) {
+            const pipelineStats = window.unifiedChunkPipeline.getStats();
+            debugInfo += `<strong>Unified Pipeline:</strong><br>`;
+            debugInfo += `Queue Size: ${pipelineStats.queueSize}<br>`;
+            debugInfo += `Chunks Loaded: ${pipelineStats.chunksLoaded}<br>`;
+            debugInfo += `Chunks Visible: ${pipelineStats.chunksVisible}<br>`;
+            debugInfo += `Cache Hit Rate: ${pipelineStats.cacheHitRate}%<br><br>`;
+        }
+        
         // Información de chunks cercanos
         debugInfo += `<strong>Nearby Chunks:</strong><br>`;
         for (let dx = -1; dx <= 1; dx++) {
@@ -191,7 +209,7 @@ class Game {
                         45,
                         cz * this.chunkManager.chunkSize + 8
                     );
-                    debugInfo += `[${cx},${cz}]: ${chunk.blocks.size} blocks, ${biome}<br>`;
+                    debugInfo += `[${cx},${cz}]: ${chunk.data ? chunk.data.blockCount : 0} blocks, ${biome}<br>`;
                 } else {
                     debugInfo += `[${cx},${cz}]: Not loaded<br>`;
                 }
@@ -205,7 +223,7 @@ class Game {
         
         // Información de rendimiento
         debugInfo += `<br><strong>Performance:</strong><br>`;
-        debugInfo += `FPS: ${document.getElementById('fps').textContent}<br>`;
+        debugInfo += `FPS: ${this.fps}<br>`;
         if (performance.memory) {
             debugInfo += `Memory: ${(performance.memory.usedJSHeapSize / 1048576).toFixed(2)} MB<br>`;
         }
@@ -232,17 +250,7 @@ class Game {
     setupEvents() {
         // Window resize - Mejorado para mantener aspecto consistente
         window.addEventListener('resize', () => {
-            const width = window.innerWidth;
-            const height = window.innerHeight;
-            
-            this.camera.aspect = width / height;
-            this.camera.updateProjectionMatrix();
-            this.renderer.setSize(width, height);
-            
-            // Actualizar controles móviles si existen
-            if (this.player.isMobile) {
-                this.updateMobileControlsPosition();
-            }
+            this.gameRenderer.handleWindowResize();
         });
 
         // Inventory clicks
@@ -255,26 +263,21 @@ class Game {
 
         // Pause button
         document.getElementById('pauseBtn').addEventListener('click', () => {
-            this.isPaused = !this.isPaused;
-            document.getElementById('pauseMenu').style.display = this.isPaused ? 'block' : 'none';
-            if (this.isPaused && !this.player.isMobile) {
-                document.exitPointerLock();
-            }
+            this.menu.togglePause();
         });
 
         // Controles de teclado
         document.addEventListener('keydown', (e) => {
             // ESC para pausar
             if (e.code === 'Escape') {
-                this.isPaused = true;
-                document.getElementById('pauseMenu').style.display = 'block';
+                this.menu.togglePause();
             }
             
             // F3 para debug overlay
             if (e.code === 'F3') {
                 e.preventDefault();
-                this.showDebugOverlay = !this.showDebugOverlay;
-                document.getElementById('debugOverlay').classList.toggle('show', this.showDebugOverlay);
+                this.hud.toggleDebug();
+                this.showDebugOverlay = this.hud.debugMode;
                 
                 // Ocultar el debug info anterior si F3 está activo
                 if (this.showDebugOverlay) {
@@ -394,48 +397,9 @@ class Game {
     updateDebugOverlay() {
         if (!this.showDebugOverlay) return;
         
-        // FPS
-        document.getElementById('debug-fps').textContent = 
-            document.getElementById('fps').textContent;
-        
-        // Position
-        document.getElementById('debug-position').textContent = 
-            `${this.player.position.x.toFixed(2)}, ${this.player.position.y.toFixed(2)}, ${this.player.position.z.toFixed(2)}`;
-        
-        // Rotation (convertir radianes a grados)
-        const yawDeg = (this.player.rotation.y * 180 / Math.PI) % 360;
-        const pitchDeg = (this.player.rotation.x * 180 / Math.PI);
-        document.getElementById('debug-rotation').textContent = 
-            `${yawDeg.toFixed(1)}°, ${pitchDeg.toFixed(1)}°`;
-        
-        // Current chunk
-        const chunkX = Math.floor(this.player.position.x / this.chunkManager.chunkSize);
-        const chunkZ = Math.floor(this.player.position.z / this.chunkManager.chunkSize);
-        document.getElementById('debug-chunk').textContent = `${chunkX}, ${chunkZ}`;
-        
-        // Loaded chunks
-        document.getElementById('debug-chunks').textContent = this.chunkManager.chunks.size;
-        
-        // Total blocks
-        document.getElementById('debug-blocks').textContent = this.blockCount.toLocaleString();
-        
-        // Biome
-        const biome = this.chunkManager.getBiomeAt(
-            Math.floor(this.player.position.x),
-            Math.floor(this.player.position.y),
-            Math.floor(this.player.position.z)
-        );
-        const biomeData = CONSTANTS.BIOME_3D.BIOMES[biome];
-        document.getElementById('debug-biome').textContent = biomeData?.name || 'Unknown';
-        
-        // Modo de vuelo
-        const flyingStatus = this.player.isFlying ? 'Sí' : 'No';
-        document.getElementById('debug-flying').textContent = flyingStatus;
-        
-        // Memory (si está disponible)
-        if (performance.memory) {
-            const memoryMB = (performance.memory.usedJSHeapSize / 1048576).toFixed(2);
-            document.getElementById('debug-memory').textContent = memoryMB;
+        // Usar HUD para actualizar
+        if (this.hud) {
+            this.hud.update(this);
         }
     }
 
@@ -460,12 +424,12 @@ class Game {
         this.frameCount++;
         this.fpsTime += deltaTime;
         if (this.fpsTime >= 1.0) {
-            const fps = Math.round(this.frameCount / this.fpsTime);
-            document.getElementById('fps').textContent = fps;
+            this.fps = Math.round(this.frameCount / this.fpsTime);
+            document.getElementById('fps').textContent = this.fps;
             
             // Actualizar FPS en el optimizador también
             if (this.performanceOptimizer) {
-                this.performanceOptimizer.fps = fps;
+                this.performanceOptimizer.fps = this.fps;
             }
             
             this.frameCount = 0;
@@ -477,7 +441,7 @@ class Game {
         this.skyManager.update(clampedDeltaTime);
         this.waterManager.update(this.time);
         
-        // Update chunks
+        // Update chunks - IMPORTANTE: Esto debe ejecutarse siempre
         const chunkCount = this.chunkManager.updateChunks(this.player.position.x, this.player.position.z);
         
         // Aplicar frustum culling si está disponible
@@ -495,8 +459,10 @@ class Game {
         document.getElementById('position').textContent = 
             `${Math.floor(this.player.position.x)}, ${Math.floor(this.player.position.y)}, ${Math.floor(this.player.position.z)}`;
         
-        // Update debug overlay
-        this.updateDebugOverlay();
+        // Update HUD completo
+        if (this.hud) {
+            this.hud.update(this);
+        }
         
         // Update terrain debug
         this.updateTerrainDebug();
@@ -506,8 +472,12 @@ class Game {
             this.performanceOptimizer.cleanupUnusedObjects();
         }
         
-        // Render
-        this.renderer.render(this.scene, this.camera);
+        // Render usando el renderer
+        if (this.gameRenderer) {
+            this.gameRenderer.render(this.scene, this.camera);
+        } else {
+            this.renderer.render(this.scene, this.camera);
+        }
     }
 
     start() {
@@ -526,12 +496,26 @@ class Game {
             if (currentStep < loadingSteps.length) {
                 const step = loadingSteps[currentStep];
                 loadProgress = step.progress;
+                
+                if (this.menu) {
+                    this.menu.updateLoadingProgress(loadProgress);
+                }
+                
                 document.getElementById('loadingProgress').textContent = `${loadProgress}% - ${step.message}`;
                 currentStep++;
                 
                 if (loadProgress >= 100) {
                     setTimeout(() => {
+                        if (this.menu) {
+                            this.menu.showLoadingScreen(false);
+                        }
                         document.getElementById('loadingScreen').style.display = 'none';
+                        
+                        // IMPORTANTE: Forzar una actualización inicial de chunks
+                        console.log('[Game] Forzando actualización inicial de chunks...');
+                        this.chunkManager.updateChunks(this.player.position.x, this.player.position.z);
+                        
+                        // Iniciar el loop de animación
                         this.animate(0);
                         
                         // Actualizar controles móviles después de cargar
