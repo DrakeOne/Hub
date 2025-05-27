@@ -1,5 +1,6 @@
 // ChunkLoader.js - Sistema de carga asíncrona de chunks optimizado tipo Minecraft
 // Carga chunks en segundo plano con prioridad basada en distancia y dirección del jugador
+// ACTUALIZADO: Ahora usa ChunkData optimizado en lugar de Map
 
 class ChunkLoader {
     constructor() {
@@ -228,10 +229,13 @@ class ChunkLoader {
     
     // Generar chunk optimizado con calidad adaptativa
     async generateChunkOptimized(chunkX, chunkZ) {
+        // USAR NUEVA CLASE ChunkData OPTIMIZADA
+        const chunkData = new ChunkData(CONSTANTS.CHUNK_SIZE, CONSTANTS.CHUNK_HEIGHT, CONSTANTS.CHUNK_SIZE);
+        
         const chunk = {
             x: chunkX,
             z: chunkZ,
-            blocks: new Map(),
+            data: chunkData, // Usar ChunkData en lugar de Map
             mesh: new THREE.Group(),
             isDirty: true,
             biomes: new Map(),
@@ -290,8 +294,7 @@ class ChunkLoader {
             const density = chunkManager.calculateDensity(worldX, y, worldZ);
             
             if (density > chunkManager.generationParams.DENSITY_THRESHOLD) {
-                const key = `${x},${y},${z}`;
-                chunk.blocks.set(key, 3); // Piedra
+                chunk.data.setBlock(x, y, z, 3); // Piedra
                 highestSolidY = Math.max(highestSolidY, y);
             }
         }
@@ -314,8 +317,7 @@ class ChunkLoader {
             if (density > chunkManager.generationParams.DENSITY_THRESHOLD) {
                 // Llenar los bloques intermedios también
                 for (let dy = 0; dy < 2 && y + dy < CONSTANTS.CHUNK_HEIGHT; dy++) {
-                    const key = `${x},${y + dy},${z}`;
-                    chunk.blocks.set(key, 3);
+                    chunk.data.setBlock(x, y + dy, z, 3);
                     highestSolidY = Math.max(highestSolidY, y + dy);
                 }
             }
@@ -334,15 +336,14 @@ class ChunkLoader {
         
         // Solo los bloques visibles de superficie
         for (let y = surfaceY; y >= Math.max(0, surfaceY - 3); y--) {
-            const key = `${x},${y},${z}`;
-            if (!chunk.blocks.has(key)) continue;
+            if (chunk.data.getBlock(x, y, z) === 0) continue;
             
             const depth = surfaceY - y;
             
             if (depth === 0) {
-                chunk.blocks.set(key, biomeData.surfaceBlock);
+                chunk.data.setBlock(x, y, z, biomeData.surfaceBlock);
             } else if (depth <= 2) {
-                chunk.blocks.set(key, biomeData.subsurfaceBlock);
+                chunk.data.setBlock(x, y, z, biomeData.subsurfaceBlock);
             }
         }
         
@@ -358,14 +359,13 @@ class ChunkLoader {
         const checkLevels = [5, 10, 15, 25, 40];
         
         for (let y of checkLevels) {
-            const key = `${x},${y},${z}`;
-            if (chunk.blocks.has(key) && chunk.blocks.get(key) === 3) {
+            if (chunk.data.getBlock(x, y, z) === 3) { // Si es piedra
                 // Probabilidad simple de mineral
                 const rand = Math.random();
                 if (rand < 0.02) {
-                    chunk.blocks.set(key, 13); // Hierro
+                    chunk.data.setBlock(x, y, z, 13); // Hierro
                 } else if (rand < 0.025) {
-                    chunk.blocks.set(key, 12); // Oro
+                    chunk.data.setBlock(x, y, z, 12); // Oro
                 }
             }
         }
@@ -431,37 +431,21 @@ class ChunkLoader {
         const blocksByType = new Map();
         let visibleBlocks = 0;
         
-        // Usar un enfoque más eficiente para verificar exposición
-        const blocks = Array.from(chunk.blocks.entries());
-        const batchSize = 200; // Procesar más bloques por batch
+        // USAR MÉTODO OPTIMIZADO DE ChunkData
+        const exposedBlocks = chunk.data.getExposedBlocks();
         
-        for (let i = 0; i < blocks.length; i += batchSize) {
-            const batch = blocks.slice(i, i + batchSize);
-            
-            for (let [key, type] of batch) {
-                if (type === 0) continue;
-                
-                const [x, y, z] = key.split(',').map(Number);
-                
-                // Verificación optimizada de exposición
-                if (this.isBlockExposedFast(chunk, x, y, z)) {
-                    if (!blocksByType.has(type)) {
-                        blocksByType.set(type, []);
-                    }
-                    
-                    blocksByType.get(type).push({
-                        x: chunk.x * CONSTANTS.CHUNK_SIZE + x,
-                        y: y,
-                        z: chunk.z * CONSTANTS.CHUNK_SIZE + z
-                    });
-                    visibleBlocks++;
-                }
+        for (let block of exposedBlocks) {
+            const type = block.type;
+            if (!blocksByType.has(type)) {
+                blocksByType.set(type, []);
             }
             
-            // Yield cada 3ms
-            if (performance.now() - startTime > 3) {
-                await new Promise(resolve => setTimeout(resolve, 0));
-            }
+            blocksByType.get(type).push({
+                x: chunk.x * CONSTANTS.CHUNK_SIZE + block.x,
+                y: block.y,
+                z: chunk.z * CONSTANTS.CHUNK_SIZE + block.z
+            });
+            visibleBlocks++;
         }
         
         // Crear instanced meshes
@@ -476,8 +460,8 @@ class ChunkLoader {
                 positions.length
             );
             
-            instancedMesh.castShadow = true;
-            instancedMesh.receiveShadow = true;
+            instancedMesh.castShadow = false;
+            instancedMesh.receiveShadow = false;
             
             const matrix = new THREE.Matrix4();
             
@@ -497,33 +481,6 @@ class ChunkLoader {
         // Actualizar tiempo de construcción
         const buildTime = performance.now() - startTime;
         this.stats.avgBuildTime = (this.stats.avgBuildTime + buildTime) / 2;
-    }
-    
-    // Verificación rápida de exposición de bloque
-    isBlockExposedFast(chunk, x, y, z) {
-        // Verificar solo las 6 caras directas
-        const checks = [
-            [x, y + 1, z], [x, y - 1, z],
-            [x + 1, y, z], [x - 1, y, z],
-            [x, y, z + 1], [x, y, z - 1]
-        ];
-        
-        for (let [nx, ny, nz] of checks) {
-            // Si está fuera de los límites, está expuesto
-            if (nx < 0 || nx >= CONSTANTS.CHUNK_SIZE || 
-                ny < 0 || ny >= CONSTANTS.CHUNK_HEIGHT ||
-                nz < 0 || nz >= CONSTANTS.CHUNK_SIZE) {
-                return true;
-            }
-            
-            // Si no hay bloque vecino, está expuesto
-            const checkKey = `${nx},${ny},${nz}`;
-            if (!chunk.blocks.has(checkKey)) {
-                return true;
-            }
-        }
-        
-        return false;
     }
     
     // Iniciar procesamiento continuo
