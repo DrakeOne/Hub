@@ -1,7 +1,7 @@
 class Player {
     constructor() {
         // Posición y física
-        this.position = new THREE.Vector3(0, 80, 0); // Spawn más alto para el nuevo terreno
+        this.position = new THREE.Vector3(0, 80, 0);
         this.velocity = new THREE.Vector3(0, 0, 0);
         this.rotation = new THREE.Euler(0, 0, 0, 'YXZ');
         
@@ -20,17 +20,17 @@ class Player {
         this.isFlying = false;
         this.isFlyingFast = false;
         
-        // Propiedades físicas - Dimensiones exactas de Minecraft
-        this.height = CONSTANTS.PLAYER_HEIGHT;       // 1.8 metros
-        this.eyeHeight = CONSTANTS.PLAYER_EYE_HEIGHT; // 1.62 metros desde la base
-        this.radius = CONSTANTS.PLAYER_RADIUS;        // 0.3 metros (0.6m de ancho)
+        // Dimensiones del jugador - Sistema simplificado
+        this.height = 1.8;  // Altura total
+        this.width = 0.6;   // Ancho del jugador
         
-        // Margen de seguridad para evitar clipping
-        this.collisionMargin = 0.001; // 1mm de margen
-        this.cameraCollisionRadius = 0.1; // Radio de colisión para la cámara
+        // Posición de la cámara relativa a los pies
+        // En Minecraft la cámara está a 1.62m del suelo
+        // Pero vamos a ajustarla para evitar clipping
+        this.cameraOffset = 1.52; // Bajamos la cámara 10cm para dar margen
         
-        // Posición real de la cámara (se actualiza después de colisiones)
-        this.cameraPosition = new THREE.Vector3();
+        // Sistema de colisión simplificado
+        this.skinWidth = 0.05; // 5cm de margen para evitar quedarse pegado
         
         // Controles
         this.inputVector = new THREE.Vector2(0, 0);
@@ -101,13 +101,15 @@ class Player {
             } else if (this.keys['ShiftLeft'] || this.keys['ShiftRight']) {
                 this.velocity.y = -speed;
             } else {
-                this.velocity.y *= 0.9; // Fricción vertical
+                this.velocity.y *= 0.9;
             }
             
-            // Aplicar velocidad de vuelo (sin colisiones)
+            // En modo vuelo, mover sin colisiones
             this.position.add(this.velocity.clone().multiplyScalar(deltaTime));
         } else {
-            // Salto normal
+            // Modo normal con física
+            
+            // Salto
             if ((this.keys['Space'] || this.keys['KeyE']) && this.isGrounded) {
                 this.jump();
             }
@@ -116,7 +118,6 @@ class Player {
             this.isInWater = this.position.y < window.game.waterManager.waterLevel;
             
             if (this.isInWater) {
-                // En agua
                 this.velocity.y *= 0.95;
                 if (this.keys['Space']) {
                     this.velocity.y = 2;
@@ -126,16 +127,16 @@ class Player {
                 this.velocity.x *= 0.8;
                 this.velocity.z *= 0.8;
             } else {
-                // Gravedad normal
+                // Gravedad
                 this.velocity.y -= this.gravity * deltaTime;
             }
             
-            // Mover y verificar colisiones
+            // Aplicar movimiento con colisiones
             this.moveWithCollision(deltaTime);
         }
         
-        // Actualizar posición de la cámara con colisión
-        this.updateCameraPosition();
+        // Actualizar cámara con posición segura
+        this.updateCamera();
         
         // Debug info
         if (window.game.showDebug) {
@@ -146,7 +147,7 @@ class Player {
                 `${this.inputVector.x.toFixed(2)}, ${this.inputVector.y.toFixed(2)}`;
         }
         
-        // Actualizar bioma con sistema 3D
+        // Actualizar bioma
         const biome = window.game.chunkManager.getBiomeAt(
             Math.floor(this.position.x),
             Math.floor(this.position.y),
@@ -157,67 +158,92 @@ class Player {
     }
 
     moveWithCollision(deltaTime) {
-        // Guardar posición anterior
-        const oldPosition = this.position.clone();
+        // Sistema de colisión mejorado tipo Minecraft
+        const movement = this.velocity.clone().multiplyScalar(deltaTime);
         
-        // Intentar mover en X y Z
-        const horizontalMove = new THREE.Vector3(
-            this.velocity.x * deltaTime,
-            0,
-            this.velocity.z * deltaTime
-        );
+        // Separar movimiento en componentes
+        const moveX = new THREE.Vector3(movement.x, 0, 0);
+        const moveY = new THREE.Vector3(0, movement.y, 0);
+        const moveZ = new THREE.Vector3(0, 0, movement.z);
         
-        // Aplicar movimiento horizontal con pequeños pasos para mejor detección
-        const steps = Math.ceil(horizontalMove.length() / 0.1); // Pasos de máximo 0.1 unidades
-        const stepVector = horizontalMove.clone().divideScalar(steps);
-        
-        for (let i = 0; i < steps; i++) {
-            const testPos = this.position.clone().add(stepVector);
-            
-            if (!this.checkCollisionAt(testPos)) {
-                this.position.copy(testPos);
-            } else {
-                // Intentar deslizarse contra la pared
-                this.handleWallSlide(stepVector);
-                break;
-            }
-        }
-        
-        // Mover en Y con detección de colisión
-        const verticalMove = this.velocity.y * deltaTime;
-        const verticalSteps = Math.ceil(Math.abs(verticalMove) / 0.1);
-        const verticalStep = verticalMove / verticalSteps;
-        
-        for (let i = 0; i < verticalSteps; i++) {
-            const testY = this.position.y + verticalStep;
-            const testPos = new THREE.Vector3(this.position.x, testY, this.position.z);
-            
-            if (!this.checkCollisionAt(testPos)) {
-                this.position.y = testY;
-            } else {
-                // Colisión vertical
-                if (this.velocity.y < 0) {
-                    // Tocando el suelo
-                    this.isGrounded = true;
-                    this.velocity.y = 0;
-                    
-                    // Ajustar posición al suelo más cercano
-                    const groundY = this.findGroundLevel(this.position.x, this.position.y, this.position.z);
-                    if (groundY !== null) {
-                        this.position.y = groundY + this.height;
-                    }
-                } else {
-                    // Golpeando el techo
-                    this.velocity.y = 0;
+        // Aplicar movimiento en Y primero (gravedad/salto)
+        const newPosY = this.position.clone().add(moveY);
+        if (!this.checkCollisionBox(newPosY)) {
+            this.position.y = newPosY.y;
+            this.isGrounded = false;
+        } else {
+            if (this.velocity.y < 0) {
+                // Cayendo - ajustar al piso
+                this.isGrounded = true;
+                this.velocity.y = 0;
+                
+                // Encontrar la altura exacta del piso
+                let floorY = Math.floor(this.position.y);
+                while (floorY > 0 && !this.isBlockSolid(this.position.x, floorY - 1, this.position.z)) {
+                    floorY--;
                 }
-                break;
+                this.position.y = floorY;
+            } else {
+                // Golpeando techo
+                this.velocity.y = 0;
             }
         }
         
-        // Verificar si sigue en el suelo
+        // Aplicar movimiento en X
+        const newPosX = this.position.clone().add(moveX);
+        if (!this.checkCollisionBox(newPosX)) {
+            this.position.x = newPosX.x;
+        } else {
+            this.velocity.x = 0;
+            
+            // Intentar subir escalón (step up)
+            if (this.isGrounded) {
+                const stepUp = newPosX.clone();
+                stepUp.y += 0.6; // Altura máxima de escalón
+                
+                if (!this.checkCollisionBox(stepUp)) {
+                    // Verificar si hay piso donde pisar
+                    const stepForward = stepUp.clone();
+                    stepForward.y -= 0.6;
+                    
+                    if (this.checkCollisionBox(stepForward)) {
+                        // Hay piso, subir el escalón
+                        this.position.x = stepUp.x;
+                        this.position.y = stepUp.y;
+                    }
+                }
+            }
+        }
+        
+        // Aplicar movimiento en Z
+        const newPosZ = this.position.clone().add(moveZ);
+        if (!this.checkCollisionBox(newPosZ)) {
+            this.position.z = newPosZ.z;
+        } else {
+            this.velocity.z = 0;
+            
+            // Intentar subir escalón
+            if (this.isGrounded) {
+                const stepUp = newPosZ.clone();
+                stepUp.y += 0.6;
+                
+                if (!this.checkCollisionBox(stepUp)) {
+                    const stepForward = stepUp.clone();
+                    stepForward.y -= 0.6;
+                    
+                    if (this.checkCollisionBox(stepForward)) {
+                        this.position.z = stepUp.z;
+                        this.position.y = stepUp.y;
+                    }
+                }
+            }
+        }
+        
+        // Verificar si seguimos en el suelo
         if (this.isGrounded) {
-            const groundCheck = new THREE.Vector3(this.position.x, this.position.y - 0.1, this.position.z);
-            this.isGrounded = this.checkCollisionAt(groundCheck);
+            const groundCheck = this.position.clone();
+            groundCheck.y -= 0.1;
+            this.isGrounded = this.checkCollisionBox(groundCheck);
         }
         
         // Límite del mundo
@@ -227,41 +253,32 @@ class Player {
         }
     }
 
-    handleWallSlide(moveVector) {
-        // Intentar mover solo en X
-        const xOnly = new THREE.Vector3(moveVector.x, 0, 0);
-        if (!this.checkCollisionAt(this.position.clone().add(xOnly))) {
-            this.position.add(xOnly);
-            this.velocity.z = 0;
-            return;
-        }
+    checkCollisionBox(testPos) {
+        // Sistema de colisión AABB simplificado
+        const halfWidth = (this.width / 2) - this.skinWidth;
         
-        // Intentar mover solo en Z
-        const zOnly = new THREE.Vector3(0, 0, moveVector.z);
-        if (!this.checkCollisionAt(this.position.clone().add(zOnly))) {
-            this.position.add(zOnly);
-            this.velocity.x = 0;
-            return;
-        }
+        // Puntos a verificar (esquinas del bounding box)
+        const checkPoints = [
+            // Pies
+            { x: testPos.x - halfWidth, y: testPos.y - this.height, z: testPos.z - halfWidth },
+            { x: testPos.x + halfWidth, y: testPos.y - this.height, z: testPos.z - halfWidth },
+            { x: testPos.x - halfWidth, y: testPos.y - this.height, z: testPos.z + halfWidth },
+            { x: testPos.x + halfWidth, y: testPos.y - this.height, z: testPos.z + halfWidth },
+            // Cabeza
+            { x: testPos.x - halfWidth, y: testPos.y - this.skinWidth, z: testPos.z - halfWidth },
+            { x: testPos.x + halfWidth, y: testPos.y - this.skinWidth, z: testPos.z - halfWidth },
+            { x: testPos.x - halfWidth, y: testPos.y - this.skinWidth, z: testPos.z + halfWidth },
+            { x: testPos.x + halfWidth, y: testPos.y - this.skinWidth, z: testPos.z + halfWidth },
+            // Centro
+            { x: testPos.x - halfWidth, y: testPos.y - this.height/2, z: testPos.z - halfWidth },
+            { x: testPos.x + halfWidth, y: testPos.y - this.height/2, z: testPos.z - halfWidth },
+            { x: testPos.x - halfWidth, y: testPos.y - this.height/2, z: testPos.z + halfWidth },
+            { x: testPos.x + halfWidth, y: testPos.y - this.height/2, z: testPos.z + halfWidth }
+        ];
         
-        // No se puede mover en ninguna dirección
-        this.velocity.x = 0;
-        this.velocity.z = 0;
-    }
-
-    checkCollisionAt(testPosition) {
-        // No colisionar en modo vuelo
-        if (this.isFlying) return false;
-        
-        // Puntos de colisión del cuerpo (hitbox de 0.6x1.8x0.6)
-        const bodyPoints = this.getCollisionPoints(testPosition);
-        
-        for (let point of bodyPoints) {
-            const blockX = Math.floor(point.x);
-            const blockY = Math.floor(point.y);
-            const blockZ = Math.floor(point.z);
-            
-            if (window.game.chunkManager.getBlock(blockX, blockY, blockZ) !== 0) {
+        // Verificar cada punto
+        for (let point of checkPoints) {
+            if (this.isBlockSolid(point.x, point.y, point.z)) {
                 return true;
             }
         }
@@ -269,192 +286,72 @@ class Player {
         return false;
     }
 
-    getCollisionPoints(position) {
-        const points = [];
-        const margin = this.collisionMargin;
-        const r = this.radius - margin;
-        
-        // Puntos en la base (pies)
-        for (let angle = 0; angle < Math.PI * 2; angle += Math.PI / 4) {
-            points.push(new THREE.Vector3(
-                position.x + Math.cos(angle) * r,
-                position.y - this.height + margin,
-                position.z + Math.sin(angle) * r
-            ));
-        }
-        
-        // Puntos en el medio
-        for (let angle = 0; angle < Math.PI * 2; angle += Math.PI / 4) {
-            points.push(new THREE.Vector3(
-                position.x + Math.cos(angle) * r,
-                position.y - this.height / 2,
-                position.z + Math.sin(angle) * r
-            ));
-        }
-        
-        // Puntos en la cabeza
-        for (let angle = 0; angle < Math.PI * 2; angle += Math.PI / 4) {
-            points.push(new THREE.Vector3(
-                position.x + Math.cos(angle) * r,
-                position.y - margin,
-                position.z + Math.sin(angle) * r
-            ));
-        }
-        
-        // Punto central en cada altura
-        points.push(new THREE.Vector3(position.x, position.y - this.height + margin, position.z));
-        points.push(new THREE.Vector3(position.x, position.y - this.height / 2, position.z));
-        points.push(new THREE.Vector3(position.x, position.y - margin, position.z));
-        
-        return points;
+    isBlockSolid(x, y, z) {
+        return window.game.chunkManager.getBlock(
+            Math.floor(x),
+            Math.floor(y),
+            Math.floor(z)
+        ) !== 0;
     }
 
-    findGroundLevel(x, y, z) {
-        // Buscar el nivel del suelo más alto debajo de la posición
-        for (let checkY = Math.floor(y); checkY >= 0; checkY--) {
-            if (window.game.chunkManager.getBlock(Math.floor(x), checkY, Math.floor(z)) !== 0) {
-                return checkY + 1;
-            }
-        }
-        return null;
-    }
-
-    updateCameraPosition() {
+    updateCamera() {
         // Posición base de la cámara
-        const baseCameraPos = this.position.clone();
-        baseCameraPos.y = this.position.y - (this.height - this.eyeHeight);
+        let cameraY = this.position.y - (this.height - this.cameraOffset);
         
-        // Si estamos en modo vuelo, no hacer colisión de cámara
+        // En modo vuelo, usar posición directa
         if (this.isFlying) {
-            this.cameraPosition.copy(baseCameraPos);
-            window.game.camera.position.copy(this.cameraPosition);
+            window.game.camera.position.set(
+                this.position.x,
+                cameraY,
+                this.position.z
+            );
             window.game.camera.rotation.copy(this.rotation);
             return;
         }
         
-        // Verificar colisión de la cámara
-        let finalCameraPos = baseCameraPos.clone();
+        // Verificar si la cámara estaría dentro de un bloque
+        const cameraBlockY = Math.floor(cameraY);
+        const headRoom = cameraY - cameraBlockY;
         
-        // Ajustar la cámara si está dentro de un bloque
-        const cameraBlock = this.getBlockAtPosition(finalCameraPos);
-        if (cameraBlock !== 0) {
-            // Intentar mover la cámara hacia abajo hasta encontrar espacio libre
-            let adjusted = false;
+        // Si hay un bloque donde estaría la cámara
+        if (this.isBlockSolid(this.position.x, cameraY, this.position.z)) {
+            // Bajar la cámara hasta encontrar espacio
+            let adjustedY = cameraY;
+            let found = false;
+            
+            // Buscar hacia abajo hasta 0.5 unidades
             for (let offset = 0.1; offset <= 0.5; offset += 0.1) {
-                const testPos = baseCameraPos.clone();
-                testPos.y -= offset;
-                
-                if (this.getBlockAtPosition(testPos) === 0) {
-                    finalCameraPos = testPos;
-                    adjusted = true;
+                const testY = cameraY - offset;
+                if (!this.isBlockSolid(this.position.x, testY, this.position.z)) {
+                    adjustedY = testY;
+                    found = true;
                     break;
                 }
             }
             
-            // Si no se pudo ajustar hacia abajo, intentar hacia adelante
-            if (!adjusted) {
-                const forward = new THREE.Vector3(0, 0, -0.2);
-                forward.applyAxisAngle(new THREE.Vector3(0, 1, 0), this.rotation.y);
-                const testPos = baseCameraPos.clone().add(forward);
-                
-                if (this.getBlockAtPosition(testPos) === 0) {
-                    finalCameraPos = testPos;
-                }
+            // Si no encontramos espacio abajo, mantener la cámara lo más baja posible
+            if (!found) {
+                adjustedY = Math.floor(cameraY) - 0.1;
             }
+            
+            cameraY = adjustedY;
         }
         
-        // Verificar que la cámara no esté demasiado cerca de bloques circundantes
-        this.adjustCameraForNearbyBlocks(finalCameraPos);
-        
-        // Aplicar posición final
-        this.cameraPosition.copy(finalCameraPos);
-        window.game.camera.position.copy(this.cameraPosition);
-        window.game.camera.rotation.copy(this.rotation);
-    }
-
-    adjustCameraForNearbyBlocks(cameraPos) {
-        const checkRadius = this.cameraCollisionRadius;
-        const adjustments = [];
-        
-        // Verificar bloques cercanos en todas las direcciones
-        for (let dx = -1; dx <= 1; dx++) {
-            for (let dy = -1; dy <= 1; dy++) {
-                for (let dz = -1; dz <= 1; dz++) {
-                    if (dx === 0 && dy === 0 && dz === 0) continue;
-                    
-                    const checkX = Math.floor(cameraPos.x + dx * checkRadius);
-                    const checkY = Math.floor(cameraPos.y + dy * checkRadius);
-                    const checkZ = Math.floor(cameraPos.z + dz * checkRadius);
-                    
-                    if (window.game.chunkManager.getBlock(checkX, checkY, checkZ) !== 0) {
-                        // Calcular vector de alejamiento
-                        const blockCenter = new THREE.Vector3(
-                            checkX + 0.5,
-                            checkY + 0.5,
-                            checkZ + 0.5
-                        );
-                        
-                        const pushVector = cameraPos.clone().sub(blockCenter);
-                        const distance = pushVector.length();
-                        
-                        if (distance < 0.5 + checkRadius) {
-                            pushVector.normalize();
-                            const pushAmount = (0.5 + checkRadius) - distance;
-                            adjustments.push(pushVector.multiplyScalar(pushAmount));
-                        }
-                    }
-                }
-            }
+        // Verificar techo bajo (espacio de menos de 2 bloques)
+        const blockAbove = this.isBlockSolid(this.position.x, this.position.y, this.position.z);
+        if (blockAbove) {
+            // Ajustar cámara para espacios bajos
+            const maxCameraY = this.position.y - 0.3; // 30cm debajo del techo
+            cameraY = Math.min(cameraY, maxCameraY);
         }
         
-        // Aplicar todos los ajustes
-        for (let adjustment of adjustments) {
-            cameraPos.add(adjustment);
-        }
-    }
-
-    getBlockAtPosition(position) {
-        return window.game.chunkManager.getBlock(
-            Math.floor(position.x),
-            Math.floor(position.y),
-            Math.floor(position.z)
+        // Aplicar posición final de la cámara
+        window.game.camera.position.set(
+            this.position.x,
+            cameraY,
+            this.position.z
         );
-    }
-
-    checkCollision() {
-        return this.checkCollisionAt(this.position);
-    }
-
-    getGroundHeight() {
-        // Buscar el bloque más alto debajo del jugador
-        let maxY = -Infinity;
-        
-        // Verificar en un área alrededor del jugador (hitbox de 0.6x0.6)
-        const checkPoints = [
-            [0, 0],
-            [this.radius, 0],
-            [-this.radius, 0],
-            [0, this.radius],
-            [0, -this.radius],
-            [this.radius, this.radius],
-            [-this.radius, this.radius],
-            [this.radius, -this.radius],
-            [-this.radius, -this.radius]
-        ];
-        
-        for (let [dx, dz] of checkPoints) {
-            const checkX = Math.floor(this.position.x + dx);
-            const checkZ = Math.floor(this.position.z + dz);
-            
-            for (let y = Math.floor(this.position.y); y >= 0; y--) {
-                if (window.game.chunkManager.getBlock(checkX, y, checkZ) !== 0) {
-                    maxY = Math.max(maxY, y + 1);
-                    break;
-                }
-            }
-        }
-        
-        return maxY === -Infinity ? 0 : maxY;
+        window.game.camera.rotation.copy(this.rotation);
     }
 
     jump() {
@@ -467,7 +364,7 @@ class Player {
     toggleFlying() {
         this.isFlying = !this.isFlying;
         if (this.isFlying) {
-            this.velocity.y = 0; // Detener caída al activar vuelo
+            this.velocity.y = 0;
             console.log('Modo vuelo activado');
         } else {
             console.log('Modo vuelo desactivado');
@@ -478,14 +375,11 @@ class Player {
         const currentTime = Date.now();
         
         if (currentTime - this.lastSpaceTime < this.spaceDoubleTapTime) {
-            // Doble tap detectado
             this.toggleFlying();
-            this.lastSpaceTime = 0; // Reset para evitar triple tap
+            this.lastSpaceTime = 0;
         } else {
-            // Primer tap
             this.lastSpaceTime = currentTime;
             
-            // Si no está volando, intentar saltar
             if (!this.isFlying && this.isGrounded) {
                 this.jump();
             }
@@ -496,7 +390,6 @@ class Player {
         const direction = new THREE.Vector3(0, 0, -1);
         direction.applyQuaternion(window.game.camera.quaternion);
         
-        // Buscar bloques en la dirección de la vista
         for (let distance = 0.5; distance < this.reach; distance += 0.1) {
             const point = window.game.camera.position.clone().add(direction.clone().multiplyScalar(distance));
             const x = Math.floor(point.x);
@@ -504,7 +397,6 @@ class Player {
             const z = Math.floor(point.z);
             
             if (window.game.chunkManager.getBlock(x, y, z) !== 0) {
-                // Determinar la cara del bloque
                 const blockCenter = new THREE.Vector3(x + 0.5, y + 0.5, z + 0.5);
                 const toBlock = point.clone().sub(blockCenter);
                 
@@ -535,18 +427,26 @@ class Player {
             const newPos = hit.position.clone().add(hit.normal);
             
             // Verificar que no colisione con el jugador
-            // Usar hitbox exacta de Minecraft
-            const playerMin = this.position.clone().sub(new THREE.Vector3(this.radius, this.height, this.radius));
-            const playerMax = this.position.clone().add(new THREE.Vector3(this.radius, 0, this.radius));
-            
-            // Verificar que el bloque no se superponga con el jugador
             const blockMin = newPos.clone();
             const blockMax = newPos.clone().add(new THREE.Vector3(1, 1, 1));
             
-            // Comprobar superposición
-            const overlap = !(blockMax.x <= playerMin.x || blockMin.x >= playerMax.x ||
-                            blockMax.y <= playerMin.y || blockMin.y >= playerMax.y ||
-                            blockMax.z <= playerMin.z || blockMin.z >= playerMax.z);
+            const playerMin = new THREE.Vector3(
+                this.position.x - this.width/2,
+                this.position.y - this.height,
+                this.position.z - this.width/2
+            );
+            const playerMax = new THREE.Vector3(
+                this.position.x + this.width/2,
+                this.position.y,
+                this.position.z + this.width/2
+            );
+            
+            // Verificar superposición
+            const overlap = !(
+                blockMax.x <= playerMin.x || blockMin.x >= playerMax.x ||
+                blockMax.y <= playerMin.y || blockMin.y >= playerMax.y ||
+                blockMax.z <= playerMin.z || blockMin.z >= playerMax.z
+            );
             
             if (!overlap) {
                 const blockTypeMap = {
