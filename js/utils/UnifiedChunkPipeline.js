@@ -4,6 +4,8 @@
 
 class UnifiedChunkPipeline {
     constructor() {
+        console.log('[UCP] Constructor iniciado');
+        
         // Estados posibles de un chunk
         this.ChunkState = {
             UNLOADED: 0,
@@ -84,6 +86,8 @@ class UnifiedChunkPipeline {
         // Estado del pipeline
         this.isRunning = false;
         this.lastFrameTime = 0;
+        
+        console.log('[UCP] Constructor completado');
     }
     
     // Inicializar pools de objetos
@@ -96,6 +100,7 @@ class UnifiedChunkPipeline {
     
     // Inicializar con ChunkManager
     initialize(chunkManager) {
+        console.log('[UCP] Inicializando con ChunkManager...');
         this.chunkManager = chunkManager;
         this.isRunning = true;
         console.log('[UnifiedChunkPipeline] Inicializado correctamente');
@@ -107,6 +112,8 @@ class UnifiedChunkPipeline {
     // Actualizar posición del jugador
     updatePlayer(position, velocity, rotation) {
         const now = performance.now();
+        
+        console.log(`[UCP] updatePlayer llamado - Pos: ${position.x.toFixed(2)}, ${position.y.toFixed(2)}, ${position.z.toFixed(2)}`);
         
         this.playerData.position = { ...position };
         this.playerData.velocity = { ...velocity };
@@ -122,8 +129,11 @@ class UnifiedChunkPipeline {
         const playerChunkX = Math.floor(this.playerData.position.x / this.chunkSize);
         const playerChunkZ = Math.floor(this.playerData.position.z / this.chunkSize);
         
+        console.log(`[UCP] Jugador en chunk: ${playerChunkX}, ${playerChunkZ}`);
+        
         // Set de chunks que deberían existir
         const requiredChunks = new Set();
+        let chunksQueued = 0;
         
         // 1. Chunks de colisión (máxima prioridad)
         for (let dx = -this.distances.collision; dx <= this.distances.collision; dx++) {
@@ -136,7 +146,9 @@ class UnifiedChunkPipeline {
                     requiredChunks.add(key);
                     
                     // Asegurar que este chunk esté en proceso
-                    this.ensureChunkLoading(chunkX, chunkZ, distance, true);
+                    if (this.ensureChunkLoading(chunkX, chunkZ, distance, true)) {
+                        chunksQueued++;
+                    }
                 }
             }
         }
@@ -152,10 +164,14 @@ class UnifiedChunkPipeline {
                     requiredChunks.add(key);
                     
                     // Asegurar que este chunk esté en proceso
-                    this.ensureChunkLoading(chunkX, chunkZ, distance, false);
+                    if (this.ensureChunkLoading(chunkX, chunkZ, distance, false)) {
+                        chunksQueued++;
+                    }
                 }
             }
         }
+        
+        console.log(`[UCP] Chunks requeridos: ${requiredChunks.size}, nuevos en cola: ${chunksQueued}`);
         
         // 3. Descargar chunks lejanos
         this.unloadDistantChunks(playerChunkX, playerChunkZ);
@@ -172,11 +188,12 @@ class UnifiedChunkPipeline {
         if (!record) {
             record = this.createChunkRecord(chunkX, chunkZ);
             this.chunkRegistry.set(key, record);
+            console.log(`[UCP] Nuevo chunk registrado: ${chunkX}, ${chunkZ}`);
         }
         
         // Si ya está visible o procesándose, no hacer nada
         if (record.state >= this.ChunkState.VISIBLE || this.activeProcessing.has(key)) {
-            return;
+            return false;
         }
         
         // Si está en cola, actualizar prioridad
@@ -187,7 +204,7 @@ class UnifiedChunkPipeline {
                 // Re-ordenar cola
                 this.priorityQueue.updatePriority(record);
             }
-            return;
+            return false;
         }
         
         // Si no está en cola, agregarlo
@@ -196,7 +213,11 @@ class UnifiedChunkPipeline {
             record.state = this.ChunkState.QUEUED;
             record.queueTime = performance.now();
             this.priorityQueue.enqueue(record);
+            console.log(`[UCP] Chunk agregado a cola: ${chunkX}, ${chunkZ} con prioridad ${record.priority.toFixed(2)}`);
+            return true;
         }
+        
+        return false;
     }
     
     // Calcular prioridad de un chunk
@@ -243,11 +264,14 @@ class UnifiedChunkPipeline {
     
     // Loop principal de procesamiento
     startProcessingLoop() {
+        console.log('[UCP] Iniciando loop de procesamiento');
+        
         const process = () => {
             if (!this.isRunning) return;
             
             const frameStart = performance.now();
             let timeSpent = 0;
+            let chunksProcessed = 0;
             
             // Procesar chunks en cola
             while (this.priorityQueue.size() > 0 && timeSpent < this.frameTimeBudget) {
@@ -258,12 +282,19 @@ class UnifiedChunkPipeline {
                 // Procesar según estado actual
                 const processTime = this.processChunkStage(record);
                 timeSpent += processTime;
+                chunksProcessed++;
                 
                 // Si completamos una etapa, actualizar
                 if (record.stageComplete) {
                     record.stageComplete = false;
                     this.advanceChunkState(record);
                 }
+            }
+            
+            // Log cada segundo
+            if (frameStart - this.lastFrameTime > 1000) {
+                console.log(`[UCP] Queue: ${this.priorityQueue.size()}, Procesados: ${chunksProcessed}, Visible: ${this.stats.chunksVisible}`);
+                this.lastFrameTime = frameStart;
             }
             
             // Actualizar estadísticas
@@ -287,6 +318,7 @@ class UnifiedChunkPipeline {
         switch (record.state) {
             case this.ChunkState.QUEUED:
                 // Iniciar generación de colisión
+                console.log(`[UCP] Iniciando generación de chunk ${record.x}, ${record.z}`);
                 record.state = this.ChunkState.GENERATING_COLLISION;
                 this.priorityQueue.dequeue();
                 break;
@@ -377,6 +409,7 @@ class UnifiedChunkPipeline {
         // Colisión completa
         record.stageComplete = true;
         record.generationProgress = { x: 0, z: 0 };
+        console.log(`[UCP] Colisión completa para chunk ${record.x}, ${record.z}`);
     }
     
     // Generar columna de colisión
@@ -439,6 +472,7 @@ class UnifiedChunkPipeline {
         // Terreno completo
         record.stageComplete = true;
         record.generationProgress = { x: 0, z: 0 };
+        console.log(`[UCP] Terreno completo para chunk ${record.x}, ${record.z}`);
     }
     
     // Generar columna completa
@@ -468,6 +502,8 @@ class UnifiedChunkPipeline {
         const startTime = performance.now();
         const chunk = record.chunk;
         
+        console.log(`[UCP] Construyendo mesh para chunk ${record.x}, ${record.z}`);
+        
         // Crear mesh group si no existe
         if (!chunk.mesh) {
             chunk.mesh = new THREE.Group();
@@ -484,6 +520,8 @@ class UnifiedChunkPipeline {
         // Agrupar bloques por tipo
         const blocksByType = new Map();
         const exposedBlocks = chunk.data.getExposedBlocks();
+        
+        console.log(`[UCP] Bloques expuestos: ${exposedBlocks.length}`);
         
         for (const block of exposedBlocks) {
             if (!blocksByType.has(block.type)) {
@@ -526,6 +564,7 @@ class UnifiedChunkPipeline {
         
         // Mesh completo
         record.stageComplete = true;
+        console.log(`[UCP] Mesh construido para chunk ${record.x}, ${record.z} con ${chunk.mesh.children.length} instanced meshes`);
     }
     
     // Hacer chunk visible
@@ -533,9 +572,14 @@ class UnifiedChunkPipeline {
         const chunk = record.chunk;
         const key = this.getChunkKey(record.x, record.z);
         
+        console.log(`[UCP] Haciendo visible chunk ${record.x}, ${record.z}`);
+        
         // Agregar a la escena
         if (window.game && window.game.scene && chunk.mesh) {
             window.game.scene.add(chunk.mesh);
+            console.log(`[UCP] Chunk agregado a la escena`);
+        } else {
+            console.error(`[UCP] No se pudo agregar chunk a la escena - game: ${!!window.game}, scene: ${!!(window.game && window.game.scene)}, mesh: ${!!chunk.mesh}`);
         }
         
         // Agregar al ChunkManager
@@ -556,7 +600,7 @@ class UnifiedChunkPipeline {
         this.chunkManager.updateBlockCount();
         
         this.stats.chunksVisible++;
-        console.log(`[UCP] Chunk ${record.x},${record.z} ahora visible`);
+        console.log(`[UCP] Chunk ${record.x},${record.z} ahora visible. Total visible: ${this.stats.chunksVisible}`);
     }
     
     // Descargar chunks lejanos
@@ -575,6 +619,10 @@ class UnifiedChunkPipeline {
         
         for (const key of toUnload) {
             this.unloadChunk(key);
+        }
+        
+        if (toUnload.length > 0) {
+            console.log(`[UCP] Descargados ${toUnload.length} chunks lejanos`);
         }
     }
     
@@ -703,10 +751,12 @@ class UnifiedChunkPipeline {
                 
             case this.ChunkState.GENERATING_TERRAIN:
                 record.state = this.ChunkState.TERRAIN_READY;
+                console.log(`[UCP] Chunk ${record.x},${record.z} terreno listo`);
                 break;
                 
             case this.ChunkState.BUILDING_MESH:
                 record.state = this.ChunkState.MESH_READY;
+                console.log(`[UCP] Chunk ${record.x},${record.z} mesh listo`);
                 break;
         }
     }
@@ -822,4 +872,5 @@ class PriorityQueue {
 }
 
 // Crear instancia global
+console.log('[UCP] Creando instancia global...');
 window.unifiedChunkPipeline = new UnifiedChunkPipeline();
