@@ -46,6 +46,13 @@ class ChunkManager {
         // Reference to persistence system
         this.blockPersistence = window.blockPersistence || null;
         
+        // NUEVO: Sistema de colisiones separado
+        this.collisionManager = window.collisionChunkManager || null;
+        if (this.collisionManager) {
+            this.collisionManager.initialize(this);
+            console.log('[ChunkManager] CollisionChunkManager integrado');
+        }
+        
         // NUEVO: Usar UnifiedChunkPipeline en lugar de sistemas separados
         this.pipeline = window.unifiedChunkPipeline || null;
         if (this.pipeline) {
@@ -242,6 +249,11 @@ class ChunkManager {
 
     // SIMPLIFICADO: Solo actualizar posición del jugador
     updateChunks(playerX, playerZ) {
+        // NUEVO: Actualizar sistema de colisiones
+        if (this.collisionManager) {
+            this.collisionManager.updatePlayerPosition(playerX, playerZ);
+        }
+        
         // Si usamos UnifiedChunkPipeline, delegar todo el trabajo
         if (this.pipeline) {
             // Calcular velocidad del jugador
@@ -301,7 +313,12 @@ class ChunkManager {
     }
 
     getBlock(x, y, z) {
-        // NUEVO: Usar UnifiedChunkPipeline si está disponible
+        // NUEVO: Usar CollisionChunkManager para física
+        if (this.collisionManager) {
+            return this.collisionManager.getBlock(x, y, z);
+        }
+        
+        // Fallback: Usar UnifiedChunkPipeline si está disponible
         if (this.pipeline) {
             return this.pipeline.getBlock(x, y, z);
         }
