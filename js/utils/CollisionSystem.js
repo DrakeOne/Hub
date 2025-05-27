@@ -117,15 +117,31 @@ class CollisionSystem {
             return blockType;
         }
         
-        // 3. Si no está en collision chunks, intentar cargar de ChunkManager
-        const blockType = this.chunkManager.getBlock(x, y, z);
+        // 3. ARREGLADO: Acceder directamente a los chunks del ChunkManager sin recursión
+        const chunk = this.chunkManager.chunks.get(chunkKey);
         
-        // Si el chunk no existe, marcarlo para carga de emergencia
-        if (blockType === 0 && !this.isChunkQueued(chunkX, chunkZ)) {
+        if (chunk && chunk.data) {
+            const localX = ((x % this.chunkSize) + this.chunkSize) % this.chunkSize;
+            const localZ = ((z % this.chunkSize) + this.chunkSize) % this.chunkSize;
+            
+            const blockType = chunk.data.getBlock(
+                Math.floor(localX),
+                Math.floor(y),
+                Math.floor(localZ)
+            );
+            
+            // Guardar en cache
+            this.collisionCache.set(hash, blockType);
+            
+            return blockType;
+        }
+        
+        // 4. Si el chunk no existe, marcarlo para carga de emergencia
+        if (!this.isChunkQueued(chunkX, chunkZ)) {
             this.queueEmergencyLoad(chunkX, chunkZ);
         }
         
-        return blockType;
+        return 0; // Aire por defecto
     }
     
     // Verificar si un chunk está en cola
