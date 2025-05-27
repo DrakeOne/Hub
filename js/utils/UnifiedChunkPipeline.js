@@ -172,6 +172,8 @@ class UnifiedChunkPipeline {
         }
         
         console.log(`[UCP] Chunks requeridos: ${requiredChunks.size}, nuevos en cola: ${chunksQueued}`);
+        console.log(`[UCP] Estado del registro: ${this.chunkRegistry.size} chunks registrados`);
+        console.log(`[UCP] Cola actual: ${this.priorityQueue.size()} chunks en cola`);
         
         // 3. Descargar chunks lejanos
         this.unloadDistantChunks(playerChunkX, playerChunkZ);
@@ -184,6 +186,13 @@ class UnifiedChunkPipeline {
         const key = this.getChunkKey(chunkX, chunkZ);
         let record = this.chunkRegistry.get(key);
         
+        // DEBUG: Log detallado para cada chunk
+        if (!record) {
+            console.log(`[UCP] Chunk ${chunkX},${chunkZ} no existe en registro, creando...`);
+        } else {
+            console.log(`[UCP] Chunk ${chunkX},${chunkZ} estado actual: ${this.getStateName(record.state)}`);
+        }
+        
         // Si no existe, crear registro
         if (!record) {
             record = this.createChunkRecord(chunkX, chunkZ);
@@ -191,23 +200,30 @@ class UnifiedChunkPipeline {
             console.log(`[UCP] Nuevo chunk registrado: ${chunkX}, ${chunkZ}`);
         }
         
-        // Si ya está visible o procesándose, no hacer nada
-        if (record.state >= this.ChunkState.VISIBLE || this.activeProcessing.has(key)) {
+        // Si ya está visible, no hacer nada
+        if (record.state >= this.ChunkState.VISIBLE) {
             return false;
         }
         
-        // Si está en cola, actualizar prioridad
+        // Si está procesándose activamente, no hacer nada
+        if (this.activeProcessing.has(key)) {
+            console.log(`[UCP] Chunk ${chunkX},${chunkZ} ya está procesándose`);
+            return false;
+        }
+        
+        // Si está en cola, actualizar prioridad si es necesario
         if (record.state === this.ChunkState.QUEUED) {
             const newPriority = this.calculatePriority(chunkX, chunkZ, distance, isCollisionCritical);
             if (newPriority < record.priority) {
                 record.priority = newPriority;
                 // Re-ordenar cola
                 this.priorityQueue.updatePriority(record);
+                console.log(`[UCP] Actualizada prioridad de chunk ${chunkX},${chunkZ} a ${newPriority.toFixed(2)}`);
             }
             return false;
         }
         
-        // Si no está en cola, agregarlo
+        // Si no está en cola y está UNLOADED, agregarlo
         if (record.state === this.ChunkState.UNLOADED) {
             record.priority = this.calculatePriority(chunkX, chunkZ, distance, isCollisionCritical);
             record.state = this.ChunkState.QUEUED;
@@ -217,7 +233,19 @@ class UnifiedChunkPipeline {
             return true;
         }
         
+        // Si está en cualquier otro estado intermedio, no hacer nada
+        console.log(`[UCP] Chunk ${chunkX},${chunkZ} en estado intermedio: ${this.getStateName(record.state)}`);
         return false;
+    }
+    
+    // Obtener nombre del estado para debug
+    getStateName(state) {
+        const names = [
+            'UNLOADED', 'QUEUED', 'GENERATING_COLLISION', 'COLLISION_READY',
+            'GENERATING_TERRAIN', 'TERRAIN_READY', 'BUILDING_MESH', 
+            'MESH_READY', 'VISIBLE', 'UNLOADING'
+        ];
+        return names[state] || 'UNKNOWN';
     }
     
     // Calcular prioridad de un chunk
@@ -254,11 +282,6 @@ class UnifiedChunkPipeline {
             }
         }
         
-        // TODO: Bonus por frustum culling
-        // if (this.isInFrustum(chunkX, chunkZ)) {
-        //     priority *= (1 - this.priorityWeights.frustum);
-        // }
-        
         return priority;
     }
     
@@ -277,7 +300,16 @@ class UnifiedChunkPipeline {
             while (this.priorityQueue.size() > 0 && timeSpent < this.frameTimeBudget) {
                 const record = this.priorityQueue.peek();
                 
-                if (!record) break;
+                if (!record) {
+                    console.error('[UCP] Error: record null en cola');
+                    this.priorityQueue.dequeue(); // Remover elemento corrupto
+                    break;
+                }
+                
+                // Log cuando empezamos a procesar un nuevo chunk
+                if (!this.activeProcessing.has(record.key)) {
+                    console.log(`[UCP] Procesando chunk ${record.x},${record.z} - Estado: ${this.getStateName(record.state)}`);
+                }
                 
                 // Procesar según estado actual
                 const processTime = this.processChunkStage(record);
@@ -289,11 +321,16 @@ class UnifiedChunkPipeline {
                     record.stageComplete = false;
                     this.advanceChunkState(record);
                 }
+                
+                // Si el chunk está completo, salir del loop para este chunk
+                if (record.state === this.ChunkState.VISIBLE) {
+                    break;
+                }
             }
             
             // Log cada segundo
             if (frameStart - this.lastFrameTime > 1000) {
-                console.log(`[UCP] Queue: ${this.priorityQueue.size()}, Procesados: ${chunksProcessed}, Visible: ${this.stats.chunksVisible}`);
+                console.log(`[UCP] Estado: Cola=${this.priorityQueue.size()}, Procesando=${this.activeProcessing.size}, Visible=${this.stats.chunksVisible}, Registrados=${this.chunkRegistry.size}`);
                 this.lastFrameTime = frameStart;
             }
             
@@ -312,8 +349,10 @@ class UnifiedChunkPipeline {
         const startTime = performance.now();
         const key = this.getChunkKey(record.x, record.z);
         
-        // Marcar como activo
-        this.activeProcessing.set(key, record);
+        // Marcar como activo si no lo está
+        if (!this.activeProcessing.has(key)) {
+            this.activeProcessing.set(key, record);
+        }
         
         switch (record.state) {
             case this.ChunkState.QUEUED:
@@ -350,6 +389,10 @@ class UnifiedChunkPipeline {
                 this.makeChunkVisible(record);
                 record.state = this.ChunkState.VISIBLE;
                 this.activeProcessing.delete(key);
+                break;
+                
+            default:
+                console.error(`[UCP] Estado desconocido: ${record.state} para chunk ${record.x},${record.z}`);
                 break;
         }
         
@@ -743,22 +786,23 @@ class UnifiedChunkPipeline {
     
     // Avanzar estado del chunk
     advanceChunkState(record) {
+        const oldState = this.getStateName(record.state);
+        
         switch (record.state) {
             case this.ChunkState.GENERATING_COLLISION:
                 record.state = this.ChunkState.COLLISION_READY;
-                console.log(`[UCP] Chunk ${record.x},${record.z} colisión lista`);
                 break;
                 
             case this.ChunkState.GENERATING_TERRAIN:
                 record.state = this.ChunkState.TERRAIN_READY;
-                console.log(`[UCP] Chunk ${record.x},${record.z} terreno listo`);
                 break;
                 
             case this.ChunkState.BUILDING_MESH:
                 record.state = this.ChunkState.MESH_READY;
-                console.log(`[UCP] Chunk ${record.x},${record.z} mesh listo`);
                 break;
         }
+        
+        console.log(`[UCP] Chunk ${record.x},${record.z}: ${oldState} -> ${this.getStateName(record.state)}`);
     }
     
     // Pool de matrices
