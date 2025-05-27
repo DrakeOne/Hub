@@ -49,6 +49,12 @@ class ChunkManager {
         // Reference to persistence system
         this.blockPersistence = window.blockPersistence || null;
         
+        // NUEVO: Inicializar sistema de colisión
+        if (window.collisionSystem) {
+            window.collisionSystem.initialize(this);
+            console.log('[ChunkManager] Sistema de colisión inicializado');
+        }
+        
         // Async loading control
         this.useAsyncLoading = true;
         this.loadingChunks = new Set();
@@ -445,6 +451,15 @@ class ChunkManager {
         const playerChunkX = Math.floor(playerX / this.chunkSize);
         const playerChunkZ = Math.floor(playerZ / this.chunkSize);
         
+        // NUEVO: Actualizar sistema de colisión con posición del jugador
+        if (window.collisionSystem) {
+            window.collisionSystem.updatePlayerPosition(
+                playerX, 
+                window.game.player.position.y, 
+                playerZ
+            );
+        }
+        
         // Calculate player velocity for prediction
         const currentTime = performance.now();
         const deltaTime = (currentTime - this.lastUpdateTime) / 1000;
@@ -728,6 +743,12 @@ class ChunkManager {
     }
 
     getBlock(x, y, z) {
+        // NUEVO: Primero intentar con el sistema de colisión si está disponible
+        if (window.collisionSystem) {
+            return window.collisionSystem.getBlock(x, y, z);
+        }
+        
+        // Fallback al sistema original
         const chunkKey = this.getChunkKey(x, z);
         const chunk = this.chunks.get(chunkKey);
         
