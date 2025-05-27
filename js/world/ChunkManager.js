@@ -622,10 +622,24 @@ class ChunkManager {
         this.updateBlockCount();
     }
     
-    // Descargar un chunk
+    // Descargar un chunk - ARREGLADO: Verificar que chunk.mesh existe
     unloadChunk(chunk, key) {
-        window.game.scene.remove(chunk.mesh);
-        window.game.waterManager.removeWaterFromChunk(chunk.x, chunk.z);
+        // Verificar que el chunk y su mesh existen antes de intentar descargar
+        if (!chunk || !chunk.mesh) {
+            console.warn(`Attempting to unload chunk without mesh: ${key}`);
+            this.chunks.delete(key);
+            return;
+        }
+        
+        // Remover de la escena
+        if (window.game && window.game.scene) {
+            window.game.scene.remove(chunk.mesh);
+        }
+        
+        // Remover agua si existe
+        if (window.game && window.game.waterManager) {
+            window.game.waterManager.removeWaterFromChunk(chunk.x, chunk.z);
+        }
         
         // Limpiar geometrías y devolver meshes al pool si es posible
         chunk.mesh.traverse((child) => {
@@ -670,7 +684,7 @@ class ChunkManager {
         const chunkKey = this.getChunkKey(x, z);
         const chunk = this.chunks.get(chunkKey);
         
-        if (chunk) {
+        if (chunk && chunk.data) {
             const localX = ((x % this.chunkSize) + this.chunkSize) % this.chunkSize;
             const localZ = ((z % this.chunkSize) + this.chunkSize) % this.chunkSize;
             
@@ -684,7 +698,7 @@ class ChunkManager {
         const chunkKey = this.getChunkKey(x, z);
         const chunk = this.chunks.get(chunkKey);
         
-        if (chunk) {
+        if (chunk && chunk.data) {
             const localX = ((x % this.chunkSize) + this.chunkSize) % this.chunkSize;
             const localZ = ((z % this.chunkSize) + this.chunkSize) % this.chunkSize;
             
