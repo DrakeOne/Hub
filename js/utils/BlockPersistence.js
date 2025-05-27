@@ -1,5 +1,6 @@
 // BlockPersistence.js - Sistema de persistencia de bloques modificados por el jugador
 // Guarda y carga los cambios de bloques de forma optimizada
+// ACTUALIZADO: Ahora funciona con ChunkData optimizado
 
 class BlockPersistence {
     constructor() {
@@ -68,7 +69,7 @@ class BlockPersistence {
         this.stats.blocksLoaded++;
     }
     
-    // Aplicar cambios guardados a un chunk
+    // Aplicar cambios guardados a un chunk (ACTUALIZADO para ChunkData)
     applyChangesToChunk(chunk, chunkSize) {
         const chunkKey = `${chunk.x},${chunk.z}`;
         
@@ -80,13 +81,10 @@ class BlockPersistence {
             try {
                 const changes = JSON.parse(savedData);
                 
-                // Aplicar cada cambio al chunk
+                // Aplicar cada cambio al chunk usando ChunkData
                 for (let [blockKey, blockType] of Object.entries(changes)) {
-                    if (blockType === 0) {
-                        chunk.blocks.delete(blockKey);
-                    } else {
-                        chunk.blocks.set(blockKey, blockType);
-                    }
+                    const [x, y, z] = blockKey.split(',').map(Number);
+                    chunk.data.setBlock(x, y, z, blockType);
                 }
                 
                 this.stats.blocksLoaded += Object.keys(changes).length;
@@ -112,11 +110,8 @@ class BlockPersistence {
             const chunkChanges = this.modifiedBlocks.get(chunkKey);
             
             chunkChanges.forEach((blockType, blockKey) => {
-                if (blockType === 0) {
-                    chunk.blocks.delete(blockKey);
-                } else {
-                    chunk.blocks.set(blockKey, blockType);
-                }
+                const [x, y, z] = blockKey.split(',').map(Number);
+                chunk.data.setBlock(x, y, z, blockType);
             });
             
             return chunkChanges.size > 0;
