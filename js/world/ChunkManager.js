@@ -144,10 +144,13 @@ class ChunkManager {
     generateChunk(chunkX, chunkZ) {
         const startTime = performance.now();
         
+        // USAR NUEVA CLASE ChunkData OPTIMIZADA
+        const chunkData = new ChunkData(this.chunkSize, this.chunkHeight, this.chunkSize);
+        
         const chunk = {
             x: chunkX,
             z: chunkZ,
-            blocks: new Map(),
+            data: chunkData, // Usar ChunkData en lugar de Map
             mesh: new THREE.Group(),
             isDirty: true,
             biomes: new Map(),
@@ -176,8 +179,7 @@ class ChunkManager {
                     columnDensities[y] = density;
                     
                     if (density > this.generationParams.DENSITY_THRESHOLD) {
-                        const key = `${x},${y},${z}`;
-                        chunk.blocks.set(key, 3); // Piedra por defecto
+                        chunkData.setBlock(x, y, z, 3); // Piedra por defecto
                         blockCount++;
                         highestSolidY = Math.max(highestSolidY, y);
                     }
@@ -214,7 +216,7 @@ class ChunkManager {
         // Log fin de generación
         if (this.debugLogger.isLogging) {
             this.debugLogger.logChunkGeneration(chunkX, chunkZ, 'end', {
-                blockCount,
+                blockCount: chunkData.blockCount,
                 generationTime: chunk.generationTime,
                 biome: centerBiome
             });
@@ -229,8 +231,7 @@ class ChunkManager {
         
         // Encontrar la superficie
         for (let y = this.chunkHeight - 1; y >= 0; y--) {
-            const key = `${x},${y},${z}`;
-            if (chunk.blocks.has(key)) {
+            if (chunk.data.getBlock(x, y, z) !== 0) {
                 surfaceY = y;
                 break;
             }
@@ -244,17 +245,16 @@ class ChunkManager {
         
         // Aplicar bloques de superficie
         for (let y = surfaceY; y >= Math.max(0, surfaceY - 5); y--) {
-            const key = `${x},${y},${z}`;
-            if (!chunk.blocks.has(key)) continue;
+            if (chunk.data.getBlock(x, y, z) === 0) continue;
             
             const depth = surfaceY - y;
             
             if (depth === 0) {
                 // Superficie
-                chunk.blocks.set(key, biomeData.surfaceBlock);
+                chunk.data.setBlock(x, y, z, biomeData.surfaceBlock);
             } else if (depth <= 3) {
                 // Subsuperficie
-                chunk.blocks.set(key, biomeData.subsurfaceBlock);
+                chunk.data.setBlock(x, y, z, biomeData.subsurfaceBlock);
             }
         }
         
@@ -274,8 +274,7 @@ class ChunkManager {
         
         for (let { type, config } of oreTypes) {
             for (let y = config.minY; y <= config.maxY && y < this.chunkHeight; y++) {
-                const key = `${x},${y},${z}`;
-                if (!chunk.blocks.has(key)) continue;
+                if (chunk.data.getBlock(x, y, z) === 0) continue;
                 
                 // Usar ruido para distribución de minerales
                 const oreNoise = this.noise.noise3D(
@@ -298,11 +297,10 @@ class ChunkManager {
         
         while (positions.length > 0 && placed.size < veinSize) {
             const [x, y, z] = positions.shift();
-            const key = `${x},${y},${z}`;
             
             // Colocar mineral si hay piedra
-            if (chunk.blocks.get(key) === 3) {
-                chunk.blocks.set(key, oreType);
+            if (chunk.data.getBlock(x, y, z) === 3) {
+                chunk.data.setBlock(x, y, z, oreType);
             }
             
             // Expandir a bloques adyacentes
@@ -356,49 +354,21 @@ class ChunkManager {
         const blocksByType = {};
         let visibleBlocks = 0;
         
-        chunk.blocks.forEach((type, key) => {
-            if (type === 0) return;
-            
-            const [x, y, z] = key.split(',').map(Number);
-            
-            // Optimización: solo renderizar bloques expuestos
-            let isExposed = false;
-            const directions = [
-                [0, 1, 0], [0, -1, 0],
-                [1, 0, 0], [-1, 0, 0],
-                [0, 0, 1], [0, 0, -1]
-            ];
-            
-            for (let dir of directions) {
-                const checkKey = `${x + dir[0]},${y + dir[1]},${z + dir[2]}`;
-                const neighbor = chunk.blocks.get(checkKey);
-                
-                // También verificar si está en el borde del chunk
-                const nx = x + dir[0];
-                const ny = y + dir[1];
-                const nz = z + dir[2];
-                const isEdge = nx < 0 || nx >= this.chunkSize || 
-                               ny < 0 || ny >= this.chunkHeight ||
-                               nz < 0 || nz >= this.chunkSize;
-                
-                if (!neighbor || neighbor === 0 || isEdge) {
-                    isExposed = true;
-                    break;
-                }
+        // USAR MÉTODO OPTIMIZADO DE ChunkData
+        const exposedBlocks = chunk.data.getExposedBlocks();
+        
+        for (let block of exposedBlocks) {
+            const type = block.type;
+            if (!blocksByType[type]) {
+                blocksByType[type] = [];
             }
-            
-            if (isExposed) {
-                if (!blocksByType[type]) {
-                    blocksByType[type] = [];
-                }
-                blocksByType[type].push({
-                    x: chunk.x * this.chunkSize + x,
-                    y: y,
-                    z: chunk.z * this.chunkSize + z
-                });
-                visibleBlocks++;
-            }
-        });
+            blocksByType[type].push({
+                x: chunk.x * this.chunkSize + block.x,
+                y: block.y,
+                z: chunk.z * this.chunkSize + block.z
+            });
+            visibleBlocks++;
+        }
 
         // Crear instanced meshes para cada tipo de bloque
         for (let type in blocksByType) {
@@ -446,14 +416,14 @@ class ChunkManager {
             this.debugLogger.logMeshBuilding(chunk.x, chunk.z, 'end', {
                 visibleBlocks,
                 buildTime,
-                totalBlocks: chunk.blocks.size
+                totalBlocks: chunk.data.blockCount
             });
         }
         
         // Actualizar contador de bloques
         window.game.blockCount = 0;
         this.chunks.forEach(c => {
-            window.game.blockCount += c.blocks.size;
+            window.game.blockCount += c.data.blockCount;
         });
     }
 
@@ -677,7 +647,7 @@ class ChunkManager {
     updateBlockCount() {
         window.game.blockCount = 0;
         this.chunks.forEach(c => {
-            window.game.blockCount += c.blocks.size;
+            window.game.blockCount += c.data.blockCount;
         });
     }
     
@@ -703,9 +673,8 @@ class ChunkManager {
         if (chunk) {
             const localX = ((x % this.chunkSize) + this.chunkSize) % this.chunkSize;
             const localZ = ((z % this.chunkSize) + this.chunkSize) % this.chunkSize;
-            const blockKey = `${Math.floor(localX)},${Math.floor(y)},${Math.floor(localZ)}`;
             
-            return chunk.blocks.get(blockKey) || 0;
+            return chunk.data.getBlock(Math.floor(localX), Math.floor(y), Math.floor(localZ));
         }
         
         return 0;
@@ -718,32 +687,29 @@ class ChunkManager {
         if (chunk) {
             const localX = ((x % this.chunkSize) + this.chunkSize) % this.chunkSize;
             const localZ = ((z % this.chunkSize) + this.chunkSize) % this.chunkSize;
-            const blockKey = `${Math.floor(localX)},${Math.floor(y)},${Math.floor(localZ)}`;
             
-            if (type === 0) {
-                chunk.blocks.delete(blockKey);
-            } else {
-                chunk.blocks.set(blockKey, type);
-            }
+            const changed = chunk.data.setBlock(Math.floor(localX), Math.floor(y), Math.floor(localZ), type);
             
-            // Registrar el cambio en el sistema de persistencia
-            if (this.blockPersistence) {
-                this.blockPersistence.recordBlockChange(
-                    Math.floor(x), 
-                    Math.floor(y), 
-                    Math.floor(z), 
-                    type, 
-                    this.chunkSize
-                );
-            }
-            
-            chunk.isDirty = true;
-            this.buildChunkMesh(chunk);
-            
-            // Actualizar chunks adyacentes si es necesario
-            if (localX === 0 || localX === this.chunkSize - 1 || 
-                localZ === 0 || localZ === this.chunkSize - 1) {
-                this.updateAdjacentChunks(x, z);
+            if (changed) {
+                // Registrar el cambio en el sistema de persistencia
+                if (this.blockPersistence) {
+                    this.blockPersistence.recordBlockChange(
+                        Math.floor(x), 
+                        Math.floor(y), 
+                        Math.floor(z), 
+                        type, 
+                        this.chunkSize
+                    );
+                }
+                
+                chunk.isDirty = true;
+                this.buildChunkMesh(chunk);
+                
+                // Actualizar chunks adyacentes si es necesario
+                if (localX === 0 || localX === this.chunkSize - 1 || 
+                    localZ === 0 || localZ === this.chunkSize - 1) {
+                    this.updateAdjacentChunks(x, z);
+                }
             }
         }
     }
