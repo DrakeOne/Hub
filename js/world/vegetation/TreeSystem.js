@@ -9,6 +9,8 @@ class TreeSystem {
         
         // Inicializar tipos de árboles
         this.initializeTreeTypes();
+        
+        console.log('[TreeSystem] Initialized with seed:', seed);
     }
     
     initializeTreeTypes() {
@@ -23,7 +25,7 @@ class TreeSystem {
             canopyRadius: 2,
             canopyHeight: 3,
             biomes: ['plains', 'forest', 'highlands'],
-            spawnChance: 0.02,
+            spawnChance: 0.08, // Aumentado para más árboles
             minSpacing: 4
         });
         
@@ -38,7 +40,7 @@ class TreeSystem {
             canopyRadius: 3,
             canopyHeight: 6,
             biomes: ['snowy_mountains', 'mountains', 'frozen_peaks'],
-            spawnChance: 0.025,
+            spawnChance: 0.06,
             minSpacing: 3
         });
         
@@ -53,7 +55,7 @@ class TreeSystem {
             canopyRadius: 2,
             canopyHeight: 4,
             biomes: ['forest', 'plains'],
-            spawnChance: 0.015,
+            spawnChance: 0.05,
             minSpacing: 4
         });
         
@@ -69,7 +71,7 @@ class TreeSystem {
             canopyHeight: 8,
             trunkRadius: 2,  // Tronco más grueso
             biomes: ['jungle'],
-            spawnChance: 0.03,
+            spawnChance: 0.1,
             minSpacing: 6,
             hasVines: true
         });
@@ -85,7 +87,7 @@ class TreeSystem {
             canopyRadius: 3,
             canopyHeight: 2,
             biomes: ['savanna'],
-            spawnChance: 0.018,
+            spawnChance: 0.05,
             minSpacing: 5,
             hasBranches: true
         });
@@ -101,9 +103,11 @@ class TreeSystem {
             canopyRadius: 0,
             canopyHeight: 0,
             biomes: ['desert'],
-            spawnChance: 0.01,
+            spawnChance: 0.02,
             minSpacing: 3
         });
+        
+        console.log('[TreeSystem] Initialized', this.treeTypes.size, 'tree types');
     }
     
     // Determinar si debe generarse un árbol en esta posición
@@ -114,25 +118,28 @@ class TreeSystem {
             const dz = worldZ - tree.z;
             const distance = Math.sqrt(dx * dx + dz * dz);
             
-            const treeType = this.getTreeTypeForBiome(biomeId);
-            if (treeType && distance < treeType.minSpacing) {
+            if (distance < 4) { // Espaciado mínimo global
                 return false;
             }
         }
         
-        // Usar ruido para distribución natural
-        const density = this.densityNoise.noise2D(worldX * 0.05, worldZ * 0.05);
-        const threshold = this.treeNoise.noise2D(worldX * 0.1, worldZ * 0.1);
-        
         // Obtener tipo de árbol para el bioma
         const treeType = this.getTreeTypeForBiome(biomeId);
-        if (!treeType) return false;
+        if (!treeType) {
+            return false;
+        }
         
-        // Combinar densidad con chance de spawn
-        const spawnValue = (density + 1) * 0.5; // Normalizar a 0-1
-        const adjustedChance = treeType.spawnChance * (1 + threshold * 0.3);
+        // Usar ruido para distribución natural
+        const noiseValue = this.treeNoise.noise2D(worldX * 0.1, worldZ * 0.1);
+        const densityValue = this.densityNoise.noise2D(worldX * 0.05, worldZ * 0.05);
         
-        return spawnValue < adjustedChance;
+        // Combinar ruidos para variación
+        const combinedNoise = (noiseValue + 1) * 0.5 * (densityValue + 1) * 0.5;
+        
+        // Verificar contra chance de spawn
+        const spawnThreshold = 1 - treeType.type.spawnChance;
+        
+        return combinedNoise > spawnThreshold;
     }
     
     // Obtener tipo de árbol apropiado para el bioma
@@ -145,56 +152,27 @@ class TreeSystem {
             }
         }
         
-        if (validTypes.length === 0) return null;
+        if (validTypes.length === 0) {
+            return null;
+        }
         
         // Seleccionar aleatoriamente basado en el ruido
-        const selection = Math.abs(this.treeNoise.noise2D(biomeId * 100, 0)) % validTypes.length;
-        return validTypes[Math.floor(selection)];
+        const selection = Math.abs(this.treeNoise.noise2D(biomeId * 100, 0)) * validTypes.length;
+        return validTypes[Math.floor(selection) % validTypes.length];
     }
     
     // Generar estructura de árbol
     generateTree(x, y, z, treeTypeName) {
         const treeType = this.treeTypes.get(treeTypeName);
-        if (!treeType) return [];
-        
-        // Verificar caché
-        const cacheKey = `${treeTypeName}_${Math.floor(x/10)}_${Math.floor(z/10)}`;
-        let structure;
-        
-        if (this.treeStructureCache.has(cacheKey)) {
-            structure = this.treeStructureCache.get(cacheKey);
-        } else {
-            structure = this.generateTreeStructure(treeType, x, z);
-            
-            // Limitar tamaño del caché
-            if (this.treeStructureCache.size > 100) {
-                const firstKey = this.treeStructureCache.keys().next().value;
-                this.treeStructureCache.delete(firstKey);
-            }
-            
-            this.treeStructureCache.set(cacheKey, structure);
+        if (!treeType) {
+            console.warn('[TreeSystem] Unknown tree type:', treeTypeName);
+            return [];
         }
         
-        // Aplicar estructura en la posición
-        const blocks = [];
-        for (const block of structure) {
-            blocks.push({
-                x: x + block.dx,
-                y: y + block.dy,
-                z: z + block.dz,
-                type: block.type
-            });
-        }
-        
-        return blocks;
-    }
-    
-    // Generar estructura base del árbol
-    generateTreeStructure(treeType, worldX, worldZ) {
         const blocks = [];
         
         // Calcular altura con variación
-        const heightVariation = this.treeNoise.noise2D(worldX * 0.1, worldZ * 0.1);
+        const heightVariation = this.treeNoise.noise2D(x * 0.1, z * 0.1);
         const height = Math.floor(
             treeType.minHeight + 
             (treeType.maxHeight - treeType.minHeight) * ((heightVariation + 1) * 0.5)
@@ -202,11 +180,13 @@ class TreeSystem {
         
         // Generar tronco
         const trunkRadius = treeType.trunkRadius || 1;
-        for (let y = 0; y < height; y++) {
+        for (let h = 0; h < height; h++) {
             if (trunkRadius === 1) {
                 // Tronco simple
                 blocks.push({
-                    dx: 0, dy: y, dz: 0,
+                    x: x, 
+                    y: y + h, 
+                    z: z,
                     type: treeType.trunkBlock
                 });
             } else {
@@ -214,7 +194,9 @@ class TreeSystem {
                 for (let dx = 0; dx < trunkRadius; dx++) {
                     for (let dz = 0; dz < trunkRadius; dz++) {
                         blocks.push({
-                            dx: dx, dy: y, dz: dz,
+                            x: x + dx, 
+                            y: y + h, 
+                            z: z + dz,
                             type: treeType.trunkBlock
                         });
                     }
@@ -224,26 +206,26 @@ class TreeSystem {
         
         // Generar ramas si el árbol las tiene
         if (treeType.hasBranches) {
-            this.generateBranches(blocks, height, treeType, worldX, worldZ);
+            this.generateBranches(blocks, x, y + height - 2, z, treeType);
         }
         
         // Generar copa según el tipo
-        const canopyY = height - 1;
+        const canopyY = y + height - 1;
         switch (treeType.canopyShape) {
             case 'spherical':
-                this.generateSphericalCanopy(blocks, canopyY, treeType);
+                this.generateSphericalCanopy(blocks, x, canopyY, z, treeType);
                 break;
             case 'conical':
-                this.generateConicalCanopy(blocks, canopyY, treeType);
+                this.generateConicalCanopy(blocks, x, canopyY, z, treeType);
                 break;
             case 'ellipsoid':
-                this.generateEllipsoidCanopy(blocks, canopyY, treeType);
+                this.generateEllipsoidCanopy(blocks, x, canopyY, z, treeType);
                 break;
             case 'layered':
-                this.generateLayeredCanopy(blocks, canopyY, treeType);
+                this.generateLayeredCanopy(blocks, x, canopyY, z, treeType);
                 break;
             case 'flat_top':
-                this.generateFlatTopCanopy(blocks, canopyY, treeType);
+                this.generateFlatTopCanopy(blocks, x, canopyY, z, treeType);
                 break;
             case 'none':
                 // Sin copa (cactus)
@@ -252,16 +234,16 @@ class TreeSystem {
         
         // Agregar vides si corresponde
         if (treeType.hasVines) {
-            this.generateVines(blocks, height, treeType);
+            this.generateVines(blocks, x, y, z, height, treeType);
         }
         
         return blocks;
     }
     
     // Generar copa esférica (roble)
-    generateSphericalCanopy(blocks, startY, treeType) {
+    generateSphericalCanopy(blocks, x, y, z, treeType) {
         const radius = treeType.canopyRadius;
-        const centerY = startY + Math.floor(treeType.canopyHeight / 2);
+        const centerY = y + Math.floor(treeType.canopyHeight / 2);
         
         for (let dy = -radius; dy <= radius; dy++) {
             for (let dx = -radius; dx <= radius; dx++) {
@@ -276,9 +258,9 @@ class TreeSystem {
                         if (Math.abs(dx) + Math.abs(dz) > 0 || dy > 0) {
                             if (Math.random() < density * 0.9) {
                                 blocks.push({
-                                    dx: dx,
-                                    dy: centerY + dy,
-                                    dz: dz,
+                                    x: x + dx,
+                                    y: centerY + dy,
+                                    z: z + dz,
                                     type: treeType.leafBlock
                                 });
                             }
@@ -290,13 +272,13 @@ class TreeSystem {
     }
     
     // Generar copa cónica (pino)
-    generateConicalCanopy(blocks, startY, treeType) {
+    generateConicalCanopy(blocks, x, y, z, treeType) {
         const maxRadius = treeType.canopyRadius;
         const height = treeType.canopyHeight;
         
-        for (let y = 0; y < height; y++) {
+        for (let h = 0; h < height; h++) {
             // Radio disminuye con la altura
-            const radius = Math.floor(maxRadius * (1 - y / height));
+            const radius = Math.floor(maxRadius * (1 - h / height));
             
             for (let dx = -radius; dx <= radius; dx++) {
                 for (let dz = -radius; dz <= radius; dz++) {
@@ -308,9 +290,9 @@ class TreeSystem {
                         
                         if (Math.random() < density) {
                             blocks.push({
-                                dx: dx,
-                                dy: startY + y,
-                                dz: dz,
+                                x: x + dx,
+                                y: y + h,
+                                z: z + dz,
                                 type: treeType.leafBlock
                             });
                         }
@@ -321,10 +303,10 @@ class TreeSystem {
     }
     
     // Generar copa elipsoide (abedul)
-    generateEllipsoidCanopy(blocks, startY, treeType) {
+    generateEllipsoidCanopy(blocks, x, y, z, treeType) {
         const radiusH = treeType.canopyRadius;
         const radiusV = treeType.canopyHeight / 2;
-        const centerY = startY + radiusV;
+        const centerY = y + radiusV;
         
         for (let dy = -radiusV; dy <= radiusV; dy++) {
             const yFactor = 1 - (dy * dy) / (radiusV * radiusV);
@@ -337,9 +319,9 @@ class TreeSystem {
                     if (distance <= currentRadius) {
                         if (Math.random() < 0.85) {
                             blocks.push({
-                                dx: dx,
-                                dy: Math.floor(centerY + dy),
-                                dz: dz,
+                                x: x + dx,
+                                y: Math.floor(centerY + dy),
+                                z: z + dz,
                                 type: treeType.leafBlock
                             });
                         }
@@ -350,7 +332,7 @@ class TreeSystem {
     }
     
     // Generar copa en capas (jungla)
-    generateLayeredCanopy(blocks, startY, treeType) {
+    generateLayeredCanopy(blocks, x, y, z, treeType) {
         const layers = [
             { radius: 2, height: 0 },
             { radius: 3, height: 1 },
@@ -372,9 +354,9 @@ class TreeSystem {
                     if (distance <= layer.radius) {
                         if (Math.random() < 0.9) {
                             blocks.push({
-                                dx: dx,
-                                dy: startY + layer.height,
-                                dz: dz,
+                                x: x + dx,
+                                y: y + layer.height,
+                                z: z + dz,
                                 type: treeType.leafBlock
                             });
                         }
@@ -385,7 +367,7 @@ class TreeSystem {
     }
     
     // Generar copa plana (acacia)
-    generateFlatTopCanopy(blocks, startY, treeType) {
+    generateFlatTopCanopy(blocks, x, y, z, treeType) {
         const radius = treeType.canopyRadius;
         
         // Capa principal plana
@@ -395,18 +377,18 @@ class TreeSystem {
                 
                 if (distance <= radius) {
                     blocks.push({
-                        dx: dx,
-                        dy: startY + 1,
-                        dz: dz,
+                        x: x + dx,
+                        y: y + 1,
+                        z: z + dz,
                         type: treeType.leafBlock
                     });
                     
                     // Capa superior más pequeña
                     if (distance <= radius - 1) {
                         blocks.push({
-                            dx: dx,
-                            dy: startY + 2,
-                            dz: dz,
+                            x: x + dx,
+                            y: y + 2,
+                            z: z + dz,
                             type: treeType.leafBlock
                         });
                     }
@@ -416,9 +398,8 @@ class TreeSystem {
     }
     
     // Generar ramas (para acacia)
-    generateBranches(blocks, height, treeType, worldX, worldZ) {
+    generateBranches(blocks, x, y, z, treeType) {
         const branchCount = 2 + Math.floor(Math.random() * 2);
-        const branchY = Math.floor(height * 0.6);
         
         for (let i = 0; i < branchCount; i++) {
             const angle = (i / branchCount) * Math.PI * 2;
@@ -430,9 +411,9 @@ class TreeSystem {
                 const dy = Math.floor(l * 0.5);
                 
                 blocks.push({
-                    dx: dx,
-                    dy: branchY + dy,
-                    dz: dz,
+                    x: x + dx,
+                    y: y + dy,
+                    z: z + dz,
                     type: treeType.trunkBlock
                 });
             }
@@ -440,7 +421,7 @@ class TreeSystem {
     }
     
     // Generar vides (para jungla)
-    generateVines(blocks, height, treeType) {
+    generateVines(blocks, x, y, z, height, treeType) {
         const vineBlock = 24; // Nuevo tipo de bloque para vides
         
         // Agregar vides colgando de las hojas
@@ -451,20 +432,20 @@ class TreeSystem {
                 const vineLength = 1 + Math.floor(Math.random() * 4);
                 
                 for (let v = 1; v <= vineLength; v++) {
-                    const vineY = leaf.dy - v;
+                    const vineY = leaf.y - v;
                     
                     // Verificar que no choque con otros bloques
                     const collision = blocks.some(b => 
-                        b.dx === leaf.dx && 
-                        b.dy === vineY && 
-                        b.dz === leaf.dz
+                        b.x === leaf.x && 
+                        b.y === vineY && 
+                        b.z === leaf.z
                     );
                     
-                    if (!collision && vineY > 0) {
+                    if (!collision && vineY > y) {
                         blocks.push({
-                            dx: leaf.dx,
-                            dy: vineY,
-                            dz: leaf.dz,
+                            x: leaf.x,
+                            y: vineY,
+                            z: leaf.z,
                             type: vineBlock
                         });
                     } else {
