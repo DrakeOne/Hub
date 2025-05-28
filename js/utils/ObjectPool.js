@@ -177,9 +177,11 @@ class ObjectPool {
         }
     }
     
-    // Obtener material del pool
-    getMaterial(type, color) {
-        const key = `${type}_${color}`;
+    // Obtener material del pool (actualizado para soportar opciones adicionales)
+    getMaterial(type, color, options = {}) {
+        // Crear clave única incluyendo opciones
+        const optionsKey = options.transparent ? `_t${options.opacity || 0.8}_${options.alphaTest || 0.5}` : '';
+        const key = `${type}_${color}${optionsKey}`;
         
         if (!this.pools.material.has(key)) {
             this.pools.material.set(key, []);
@@ -195,21 +197,24 @@ class ObjectPool {
         this.incrementStat('material', 'created');
         
         // Crear nuevo material según el tipo
+        const materialOptions = { color, ...options };
+        
         switch (type) {
             case 'lambert':
-                return new THREE.MeshLambertMaterial({ color });
+                return new THREE.MeshLambertMaterial(materialOptions);
             case 'basic':
-                return new THREE.MeshBasicMaterial({ color });
+                return new THREE.MeshBasicMaterial(materialOptions);
             case 'phong':
-                return new THREE.MeshPhongMaterial({ color });
+                return new THREE.MeshPhongMaterial(materialOptions);
             default:
-                return new THREE.MeshLambertMaterial({ color });
+                return new THREE.MeshLambertMaterial(materialOptions);
         }
     }
     
-    // Devolver material al pool
-    returnMaterial(material, type, color) {
-        const key = `${type}_${color}`;
+    // Devolver material al pool (actualizado para soportar opciones)
+    returnMaterial(material, type, color, options = {}) {
+        const optionsKey = options.transparent ? `_t${options.opacity || 0.8}_${options.alphaTest || 0.5}` : '';
+        const key = `${type}_${color}${optionsKey}`;
         
         if (!this.pools.material.has(key)) {
             this.pools.material.set(key, []);
