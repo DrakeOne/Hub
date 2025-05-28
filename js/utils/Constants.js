@@ -40,7 +40,20 @@ const CONSTANTS = {
         10: { color: 0xFF0000, name: 'redstone' }, // Redstone
         11: { color: 0x4169E1, name: 'lapis' }, // Lapislázuli
         12: { color: 0xFFD700, name: 'gold' }, // Oro
-        13: { color: 0xC0C0C0, name: 'iron' } // Hierro
+        13: { color: 0xC0C0C0, name: 'iron' }, // Hierro
+        
+        // Bloques de árboles
+        14: { color: 0x48C147, name: 'oak_leaves', transparent: true }, // Hojas de roble
+        15: { color: 0x8B4513, name: 'pine_wood' }, // Madera de pino
+        16: { color: 0x1B5E20, name: 'pine_leaves', transparent: true }, // Hojas de pino
+        17: { color: 0xF5DEB3, name: 'birch_wood' }, // Madera de abedul
+        18: { color: 0x80C147, name: 'birch_leaves', transparent: true }, // Hojas de abedul
+        19: { color: 0x664228, name: 'jungle_wood' }, // Madera de jungla
+        20: { color: 0x48C147, name: 'jungle_leaves', transparent: true }, // Hojas de jungla
+        21: { color: 0xBA6337, name: 'acacia_wood' }, // Madera de acacia
+        22: { color: 0x87A96B, name: 'acacia_leaves', transparent: true }, // Hojas de acacia
+        23: { color: 0x5C7C3A, name: 'cactus' }, // Cactus
+        24: { color: 0x48C147, name: 'vines', transparent: true } // Vides
     },
     
     // Sistema de biomas 3D
