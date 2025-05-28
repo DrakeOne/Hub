@@ -12,6 +12,9 @@ class ChunkManager {
         // Initialize 3D biome provider
         this.biomeProvider = new BiomeProvider3D(this.seed);
         
+        // Initialize tree system
+        this.treeSystem = new TreeSystem(this.seed);
+        
         this.blockTypes = CONSTANTS.BLOCK_TYPES;
         
         // Use object pool if available, otherwise create normally
@@ -24,9 +27,25 @@ class ChunkManager {
         // Pre-create materials using pool if available
         for (let type in this.blockTypes) {
             if (this.blockTypes[type]) {
-                this.materials[type] = window.objectPool ?
-                    window.objectPool.getMaterial('lambert', this.blockTypes[type].color) :
-                    new THREE.MeshLambertMaterial({ color: this.blockTypes[type].color });
+                // Handle transparent blocks differently
+                if (this.blockTypes[type].transparent) {
+                    this.materials[type] = window.objectPool ?
+                        window.objectPool.getMaterial('lambert', this.blockTypes[type].color, {
+                            transparent: true,
+                            opacity: 0.8,
+                            alphaTest: 0.5
+                        }) :
+                        new THREE.MeshLambertMaterial({ 
+                            color: this.blockTypes[type].color,
+                            transparent: true,
+                            opacity: 0.8,
+                            alphaTest: 0.5
+                        });
+                } else {
+                    this.materials[type] = window.objectPool ?
+                        window.objectPool.getMaterial('lambert', this.blockTypes[type].color) :
+                        new THREE.MeshLambertMaterial({ color: this.blockTypes[type].color });
+                }
             }
         }
 
@@ -150,10 +169,13 @@ class ChunkManager {
             data: chunkData,
             mesh: new THREE.Group(),
             isDirty: true,
-            biomes: new Map()
+            biomes: new Map(),
+            trees: [] // Para almacenar referencias a árboles
         };
         
         // Generar terreno
+        const surfaceMap = new Map(); // Para rastrear superficies
+        
         for (let x = 0; x < this.chunkSize; x++) {
             for (let z = 0; z < this.chunkSize; z++) {
                 const worldX = chunkX * this.chunkSize + x;
@@ -185,11 +207,88 @@ class ChunkManager {
                             chunk.data.setBlock(x, y, z, biomeData.subsurfaceBlock);
                         }
                     }
+                    
+                    // Guardar superficie para generación de árboles
+                    surfaceMap.set(`${x},${z}`, { y: surfaceY, biome: surfaceBiome });
                 }
             }
         }
         
+        // Generar vegetación (árboles)
+        this.generateVegetation(chunk, surfaceMap);
+        
         return chunk;
+    }
+
+    // Generar vegetación en el chunk
+    generateVegetation(chunk, surfaceMap) {
+        const treePositions = [];
+        
+        // Iterar sobre las posiciones de superficie
+        for (const [key, surface] of surfaceMap) {
+            const [x, z] = key.split(',').map(Number);
+            const worldX = chunk.x * this.chunkSize + x;
+            const worldZ = chunk.z * this.chunkSize + z;
+            
+            // Verificar si es una superficie válida para árboles
+            if (surface.y < this.chunkHeight - 20 && surface.y > CONSTANTS.WATER_LEVEL) {
+                // Verificar si debe generar un árbol
+                if (this.treeSystem.shouldSpawnTree(worldX, worldZ, surface.biome, treePositions)) {
+                    const treeType = this.treeSystem.getTreeTypeForBiome(surface.biome);
+                    
+                    if (treeType) {
+                        // Generar estructura del árbol
+                        const treeBlocks = this.treeSystem.generateTree(
+                            worldX, 
+                            surface.y + 1, 
+                            worldZ, 
+                            treeType.name
+                        );
+                        
+                        // Aplicar bloques del árbol al chunk
+                        this.applyTreeToChunk(chunk, treeBlocks);
+                        
+                        // Guardar referencia del árbol
+                        treePositions.push({
+                            x: worldX,
+                            y: surface.y + 1,
+                            z: worldZ,
+                            type: treeType.name
+                        });
+                        
+                        chunk.trees.push({
+                            localX: x,
+                            localZ: z,
+                            worldX: worldX,
+                            worldY: surface.y + 1,
+                            worldZ: worldZ,
+                            type: treeType.name
+                        });
+                    }
+                }
+            }
+        }
+    }
+
+    // Aplicar bloques de árbol al chunk
+    applyTreeToChunk(chunk, treeBlocks) {
+        for (const block of treeBlocks) {
+            // Convertir coordenadas mundiales a locales
+            const localX = ((block.x % this.chunkSize) + this.chunkSize) % this.chunkSize;
+            const localZ = ((block.z % this.chunkSize) + this.chunkSize) % this.chunkSize;
+            
+            // Verificar límites
+            if (localX >= 0 && localX < this.chunkSize &&
+                block.y >= 0 && block.y < this.chunkHeight &&
+                localZ >= 0 && localZ < this.chunkSize) {
+                
+                // Solo colocar si es aire o reemplazable
+                const currentBlock = chunk.data.getBlock(localX, block.y, localZ);
+                if (currentBlock === 0 || (currentBlock >= 14 && currentBlock <= 24)) {
+                    chunk.data.setBlock(localX, block.y, localZ, block.type);
+                }
+            }
+        }
     }
 
     // Construir mesh del chunk
@@ -211,6 +310,7 @@ class ChunkManager {
         
         // Agrupar bloques por tipo
         const blocksByType = new Map();
+        const transparentBlocksByType = new Map();
         
         for (let x = 0; x < this.chunkSize; x++) {
             for (let y = 0; y < this.chunkHeight; y++) {
@@ -220,11 +320,15 @@ class ChunkManager {
                     
                     // Verificar si el bloque es visible
                     if (this.isBlockExposed(chunk, x, y, z)) {
-                        if (!blocksByType.has(type)) {
-                            blocksByType.set(type, []);
+                        const blockDef = this.blockTypes[type];
+                        const targetMap = blockDef && blockDef.transparent ? 
+                            transparentBlocksByType : blocksByType;
+                        
+                        if (!targetMap.has(type)) {
+                            targetMap.set(type, []);
                         }
                         
-                        blocksByType.get(type).push({
+                        targetMap.get(type).push({
                             x: chunk.x * this.chunkSize + x,
                             y: y,
                             z: chunk.z * this.chunkSize + z
@@ -234,7 +338,7 @@ class ChunkManager {
             }
         }
         
-        // Crear instanced meshes
+        // Crear instanced meshes para bloques opacos
         for (let [type, positions] of blocksByType) {
             if (positions.length === 0) continue;
             
@@ -259,6 +363,32 @@ class ChunkManager {
             chunk.mesh.add(instancedMesh);
         }
         
+        // Crear instanced meshes para bloques transparentes (se renderizan después)
+        for (let [type, positions] of transparentBlocksByType) {
+            if (positions.length === 0) continue;
+            
+            const instancedMesh = new THREE.InstancedMesh(
+                this.blockGeometry,
+                this.materials[type],
+                positions.length
+            );
+            
+            instancedMesh.castShadow = false;
+            instancedMesh.receiveShadow = false;
+            instancedMesh.renderOrder = 1; // Renderizar después de bloques opacos
+            
+            const matrix = new THREE.Matrix4();
+            
+            positions.forEach((pos, i) => {
+                matrix.setPosition(pos.x, pos.y, pos.z);
+                instancedMesh.setMatrixAt(i, matrix);
+            });
+            
+            instancedMesh.instanceMatrix.needsUpdate = true;
+            instancedMesh.frustumCulled = false;
+            chunk.mesh.add(instancedMesh);
+        }
+        
         chunk.isDirty = false;
     }
 
@@ -269,6 +399,10 @@ class ChunkManager {
             [0, 1, 0], [0, -1, 0],
             [0, 0, 1], [0, 0, -1]
         ];
+        
+        const currentType = chunk.data.getBlock(x, y, z);
+        const isTransparent = this.blockTypes[currentType] && 
+                            this.blockTypes[currentType].transparent;
         
         for (let [dx, dy, dz] of directions) {
             const nx = x + dx;
@@ -283,7 +417,14 @@ class ChunkManager {
             }
             
             // Si el bloque adyacente es aire, está expuesto
-            if (chunk.data.getBlock(nx, ny, nz) === 0) {
+            const adjacentType = chunk.data.getBlock(nx, ny, nz);
+            if (adjacentType === 0) {
+                return true;
+            }
+            
+            // Si el bloque actual es opaco y el adyacente es transparente, está expuesto
+            if (!isTransparent && this.blockTypes[adjacentType] && 
+                this.blockTypes[adjacentType].transparent) {
                 return true;
             }
         }
