@@ -5,6 +5,9 @@ class TreeGenerator {
         this.structureCache = new Map();
         this.maxCacheSize = 50;
         
+        // Constante para distancia máxima de hojas
+        this.MAX_LEAF_DISTANCE = 4;
+        
         // Definiciones completas de todos los tipos de árboles
         this.treeDefinitions = {
             oak: {
@@ -240,7 +243,7 @@ class TreeGenerator {
         
         // Seleccionar variante basada en seed
         const variant = this.selectVariant(definition.variants, seed);
-        const blocks = [];
+        let blocks = [];
         
         // Generar altura
         const height = this.randomRange(variant.minHeight, variant.maxHeight, seed);
@@ -261,6 +264,9 @@ class TreeGenerator {
             this.addButtressRoots(blocks, 0, 0, 0, treeType);
         }
         
+        // NUEVO: Validar conectividad de hojas
+        blocks = this.validateLeafConnectivity(blocks);
+        
         // Guardar en cache
         if (this.structureCache.size >= this.maxCacheSize) {
             const firstKey = this.structureCache.keys().next().value;
@@ -269,6 +275,127 @@ class TreeGenerator {
         this.structureCache.set(cacheKey, blocks);
         
         return this.translateStructure(blocks, x, y, z);
+    }
+    
+    // NUEVO: Sistema de validación de conectividad de hojas
+    validateLeafConnectivity(blocks) {
+        const woodBlocks = new Set();
+        const leafBlocks = [];
+        const leafTypes = [14, 16, 18, 20, 22]; // Todos los tipos de hojas
+        
+        // Fase 1: Catalogar todos los bloques
+        for (const block of blocks) {
+            const key = `${block.x},${block.y},${block.z}`;
+            
+            // Es madera si no es hoja ni vid
+            if (!leafTypes.includes(block.type) && block.type !== 24) {
+                woodBlocks.add(key);
+            } else if (leafTypes.includes(block.type)) {
+                leafBlocks.push(block);
+            }
+        }
+        
+        // Si no hay hojas, retornar bloques originales
+        if (leafBlocks.length === 0) return blocks;
+        
+        // Fase 2: Identificar hojas conectadas usando BFS
+        const connectedLeaves = new Set();
+        const checkQueue = [];
+        
+        // Iniciar desde todas las hojas adyacentes a madera
+        for (const leaf of leafBlocks) {
+            if (this.isAdjacentToWood(leaf, woodBlocks)) {
+                const key = `${leaf.x},${leaf.y},${leaf.z}`;
+                checkQueue.push(leaf);
+                connectedLeaves.add(key);
+            }
+        }
+        
+        // BFS para encontrar todas las hojas conectadas
+        while (checkQueue.length > 0) {
+            const current = checkQueue.shift();
+            const neighbors = this.getNeighborPositions(current);
+            
+            for (const neighbor of neighbors) {
+                const key = `${neighbor.x},${neighbor.y},${neighbor.z}`;
+                
+                // Buscar si este vecino es una hoja
+                const neighborLeaf = leafBlocks.find(b => 
+                    b.x === neighbor.x && 
+                    b.y === neighbor.y && 
+                    b.z === neighbor.z
+                );
+                
+                if (neighborLeaf && !connectedLeaves.has(key)) {
+                    // Verificar distancia Manhattan a la madera más cercana
+                    if (this.isWithinMaxDistance(neighborLeaf, woodBlocks)) {
+                        connectedLeaves.add(key);
+                        checkQueue.push(neighborLeaf);
+                    }
+                }
+            }
+        }
+        
+        // Fase 3: Filtrar bloques, manteniendo solo hojas conectadas
+        return blocks.filter(block => {
+            // Si no es hoja, mantener
+            if (!leafTypes.includes(block.type)) return true;
+            
+            // Si es hoja, verificar si está conectada
+            const key = `${block.x},${block.y},${block.z}`;
+            return connectedLeaves.has(key);
+        });
+    }
+    
+    // Verificar si una hoja está adyacente a madera
+    isAdjacentToWood(leaf, woodBlocks) {
+        const directions = [
+            [1, 0, 0], [-1, 0, 0],
+            [0, 1, 0], [0, -1, 0],
+            [0, 0, 1], [0, 0, -1]
+        ];
+        
+        for (const [dx, dy, dz] of directions) {
+            const key = `${leaf.x + dx},${leaf.y + dy},${leaf.z + dz}`;
+            if (woodBlocks.has(key)) return true;
+        }
+        
+        return false;
+    }
+    
+    // Obtener posiciones vecinas
+    getNeighborPositions(block) {
+        const neighbors = [];
+        const directions = [
+            [1, 0, 0], [-1, 0, 0],
+            [0, 1, 0], [0, -1, 0],
+            [0, 0, 1], [0, 0, -1]
+        ];
+        
+        for (const [dx, dy, dz] of directions) {
+            neighbors.push({
+                x: block.x + dx,
+                y: block.y + dy,
+                z: block.z + dz
+            });
+        }
+        
+        return neighbors;
+    }
+    
+    // Verificar si una hoja está dentro de la distancia máxima de cualquier madera
+    isWithinMaxDistance(leaf, woodBlocks) {
+        for (const woodKey of woodBlocks) {
+            const [wx, wy, wz] = woodKey.split(',').map(Number);
+            const distance = Math.abs(leaf.x - wx) + 
+                           Math.abs(leaf.y - wy) + 
+                           Math.abs(leaf.z - wz);
+            
+            if (distance <= this.MAX_LEAF_DISTANCE) {
+                return true;
+            }
+        }
+        return false;
     }
     
     // Generar tronco según patrón
@@ -366,6 +493,22 @@ class TreeGenerator {
                         z: z + Math.floor(fork2.dz * progress * 2),
                         type: logBlock
                     });
+                }
+                break;
+                
+            case 'thick':
+                // Para árboles de jungla con tronco 2x2
+                for (let h = 0; h < height; h++) {
+                    for (let dx = 0; dx < 2; dx++) {
+                        for (let dz = 0; dz < 2; dz++) {
+                            blocks.push({
+                                x: x + dx,
+                                y: y + h,
+                                z: z + dz,
+                                type: logBlock
+                            });
+                        }
+                    }
                 }
                 break;
         }
