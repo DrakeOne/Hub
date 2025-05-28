@@ -77,12 +77,62 @@ class ChunkManager {
         this.generationQueue = [];
         this.isGenerating = false;
         
+        // NUEVO: Cache de árboles pendientes para cross-chunk
+        this.pendingTreesCache = new Map();
+        this.TREE_OVERLAP_RADIUS = 8; // Radio máximo de árboles
+        
         // Iniciar procesamiento
         this.startProcessing();
     }
 
     getChunkKey(x, z) {
         return `${Math.floor(x / this.chunkSize)},${Math.floor(z / this.chunkSize)}`;
+    }
+    
+    // NUEVO: Obtener coordenadas de chunk desde coordenadas mundiales
+    getChunkCoords(worldX, worldZ) {
+        return {
+            x: Math.floor(worldX / this.chunkSize),
+            z: Math.floor(worldZ / this.chunkSize)
+        };
+    }
+    
+    // NUEVO: Obtener chunks en un radio
+    getChunksInRadius(centerChunkX, centerChunkZ, radius) {
+        const chunks = [];
+        for (let dx = -radius; dx <= radius; dx++) {
+            for (let dz = -radius; dz <= radius; dz++) {
+                chunks.push({
+                    x: centerChunkX + dx,
+                    z: centerChunkZ + dz,
+                    key: `${centerChunkX + dx},${centerChunkZ + dz}`
+                });
+            }
+        }
+        return chunks;
+    }
+    
+    // NUEVO: Determinar qué chunks son afectados por un conjunto de bloques
+    getAffectedChunks(blocks) {
+        const affectedChunks = new Map();
+        
+        for (const block of blocks) {
+            const chunkCoords = this.getChunkCoords(block.x, block.z);
+            const key = `${chunkCoords.x},${chunkCoords.z}`;
+            
+            if (!affectedChunks.has(key)) {
+                affectedChunks.set(key, {
+                    x: chunkCoords.x,
+                    z: chunkCoords.z,
+                    key: key,
+                    blocks: []
+                });
+            }
+            
+            affectedChunks.get(key).blocks.push(block);
+        }
+        
+        return affectedChunks;
     }
 
     // Calculate 3D density with 3D biomes
@@ -214,14 +264,42 @@ class ChunkManager {
             }
         }
         
-        // Generar vegetación (árboles)
-        this.generateVegetation(chunk, surfaceMap);
+        // NUEVO: Aplicar árboles pendientes de otros chunks
+        this.applyPendingTrees(chunk);
+        
+        // Generar vegetación con soporte cross-chunk
+        this.generateVegetationWithOverlap(chunk, surfaceMap);
         
         return chunk;
     }
+    
+    // NUEVO: Aplicar árboles pendientes de otros chunks
+    applyPendingTrees(chunk) {
+        const chunkKey = `${chunk.x},${chunk.z}`;
+        
+        if (this.pendingTreesCache.has(chunkKey)) {
+            const pendingTrees = this.pendingTreesCache.get(chunkKey);
+            
+            for (const treeData of pendingTrees) {
+                this.applyTreeToChunk(chunk, treeData.blocks);
+                
+                // Agregar referencia del árbol
+                chunk.trees.push({
+                    worldX: treeData.x,
+                    worldY: treeData.y,
+                    worldZ: treeData.z,
+                    type: treeData.type,
+                    fromOtherChunk: true
+                });
+            }
+            
+            // Limpiar cache
+            this.pendingTreesCache.delete(chunkKey);
+        }
+    }
 
-    // Generar vegetación en el chunk
-    generateVegetation(chunk, surfaceMap) {
+    // NUEVO: Generar vegetación con soporte para árboles cross-chunk
+    generateVegetationWithOverlap(chunk, surfaceMap) {
         const treePositions = [];
         
         // Iterar sobre las posiciones de superficie
@@ -245,8 +323,39 @@ class ChunkManager {
                             treeType.name
                         );
                         
-                        // Aplicar bloques del árbol al chunk
-                        this.applyTreeToChunk(chunk, treeBlocks);
+                        // Determinar qué chunks son afectados por este árbol
+                        const affectedChunks = this.getAffectedChunks(treeBlocks);
+                        
+                        // Aplicar bloques a todos los chunks afectados
+                        for (const [affectedKey, affectedData] of affectedChunks) {
+                            if (affectedKey === `${chunk.x},${chunk.z}`) {
+                                // Es el chunk actual
+                                this.applyTreeToChunk(chunk, affectedData.blocks);
+                            } else {
+                                // Es otro chunk - verificar si existe o guardarlo para después
+                                const existingChunk = this.chunks.get(affectedKey);
+                                
+                                if (existingChunk) {
+                                    // El chunk existe, aplicar directamente
+                                    this.applyTreeToChunk(existingChunk, affectedData.blocks);
+                                    existingChunk.isDirty = true;
+                                    this.buildChunkMesh(existingChunk);
+                                } else {
+                                    // El chunk no existe aún, guardar para aplicar cuando se genere
+                                    if (!this.pendingTreesCache.has(affectedKey)) {
+                                        this.pendingTreesCache.set(affectedKey, []);
+                                    }
+                                    
+                                    this.pendingTreesCache.get(affectedKey).push({
+                                        x: worldX,
+                                        y: surface.y + 1,
+                                        z: worldZ,
+                                        type: treeType.name,
+                                        blocks: affectedData.blocks
+                                    });
+                                }
+                            }
+                        }
                         
                         // Guardar referencia del árbol
                         treePositions.push({
@@ -270,12 +379,12 @@ class ChunkManager {
         }
     }
 
-    // Aplicar bloques de árbol al chunk
+    // Aplicar bloques de árbol al chunk (mejorado para manejar coordenadas correctamente)
     applyTreeToChunk(chunk, treeBlocks) {
         for (const block of treeBlocks) {
-            // Convertir coordenadas mundiales a locales
-            const localX = ((block.x % this.chunkSize) + this.chunkSize) % this.chunkSize;
-            const localZ = ((block.z % this.chunkSize) + this.chunkSize) % this.chunkSize;
+            // Calcular coordenadas locales del chunk
+            const localX = block.x - (chunk.x * this.chunkSize);
+            const localZ = block.z - (chunk.z * this.chunkSize);
             
             // Verificar límites
             if (localX >= 0 && localX < this.chunkSize &&
@@ -531,6 +640,22 @@ class ChunkManager {
         
         for (const key of collisionToRemove) {
             this.collisionChunks.delete(key);
+        }
+        
+        // NUEVO: Limpiar cache de árboles pendientes muy lejanos
+        const pendingTreesToRemove = [];
+        for (const [key] of this.pendingTreesCache) {
+            const [cx, cz] = key.split(',').map(Number);
+            const dx = cx - playerChunkX;
+            const dz = cz - playerChunkZ;
+            
+            if (Math.abs(dx) > unloadDistance + 2 || Math.abs(dz) > unloadDistance + 2) {
+                pendingTreesToRemove.push(key);
+            }
+        }
+        
+        for (const key of pendingTreesToRemove) {
+            this.pendingTreesCache.delete(key);
         }
         
         // Actualizar contador
