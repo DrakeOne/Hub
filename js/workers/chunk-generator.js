@@ -2,7 +2,7 @@
 // Esto elimina el lag al generar nuevos chunks
 
 // Importar SimplexNoise
-importScripts('/js/libs/simplex-noise.min.js');
+importScripts('https://drakeone.github.io/Hub/js/libs/simplex-noise.min.js');
 
 // Constantes necesarias (copiadas de Constants.js)
 const CHUNK_SIZE = 16;
