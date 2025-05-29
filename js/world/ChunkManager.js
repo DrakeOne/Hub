@@ -431,15 +431,15 @@ class ChunkManager {
         
         // Definición de las 6 caras de un cubo
         const faces = {
-            // Cara superior (+Y)
+            // Cara superior (+Y) - CORREGIDO: orden antihorario visto desde arriba
             top: {
                 dir: [0, 1, 0],
                 vertices: [
-                    [-0.5, 0.5, -0.5], [0.5, 0.5, -0.5],
-                    [0.5, 0.5, 0.5], [-0.5, 0.5, 0.5]
+                    [-0.5, 0.5, -0.5], [-0.5, 0.5, 0.5],
+                    [0.5, 0.5, 0.5], [0.5, 0.5, -0.5]
                 ],
                 normal: [0, 1, 0],
-                uvs: [0, 0, 1, 0, 1, 1, 0, 1]
+                uvs: [0, 0, 0, 1, 1, 1, 1, 0]
             },
             // Cara inferior (-Y)
             bottom: {
