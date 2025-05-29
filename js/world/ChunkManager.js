@@ -81,8 +81,166 @@ class ChunkManager {
         this.pendingTreesCache = new Map();
         this.TREE_OVERLAP_RADIUS = 8; // Radio máximo de árboles
         
+        // Web Worker para generación sin lag
+        this.worker = null;
+        this.workerBusy = false;
+        this.pendingWorkerTasks = new Map();
+        this.initializeWorker();
+        
         // Iniciar procesamiento
         this.startProcessing();
+    }
+
+    // Inicializar Web Worker
+    initializeWorker() {
+        if (typeof Worker !== 'undefined') {
+            try {
+                this.worker = new Worker('js/workers/chunk-generator.js');
+                
+                this.worker.onmessage = (e) => {
+                    const { type, data } = e.data;
+                    
+                    switch (type) {
+                        case 'loaded':
+                            console.log('[ChunkManager] Web Worker cargado');
+                            // Inicializar con semilla
+                            this.worker.postMessage({
+                                type: 'init',
+                                data: { seed: this.seed }
+                            });
+                            break;
+                            
+                        case 'ready':
+                            console.log('[ChunkManager] Web Worker listo para generar chunks');
+                            this.workerBusy = false;
+                            break;
+                            
+                        case 'chunk':
+                            this.handleWorkerChunk(data);
+                            break;
+                            
+                        case 'error':
+                            console.error('[ChunkManager] Error en Web Worker:', data.error);
+                            this.workerBusy = false;
+                            // Generar chunk de forma tradicional como fallback
+                            this.generateChunkFallback(data.chunkX, data.chunkZ);
+                            break;
+                    }
+                };
+                
+                this.worker.onerror = (error) => {
+                    console.error('[ChunkManager] Error fatal en Web Worker:', error);
+                    this.worker = null;
+                };
+                
+            } catch (error) {
+                console.warn('[ChunkManager] No se pudo crear Web Worker:', error);
+                this.worker = null;
+            }
+        }
+    }
+
+    // Manejar chunk recibido del worker
+    handleWorkerChunk(data) {
+        const { chunkX, chunkZ, blocks, surfaceMap, generationTime } = data;
+        const key = `${chunkX},${chunkZ}`;
+        
+        console.log(`[ChunkManager] Chunk ${key} generado en ${generationTime.toFixed(2)}ms por Web Worker`);
+        
+        // Crear estructura de chunk
+        const chunk = {
+            x: chunkX,
+            z: chunkZ,
+            data: new ChunkData(this.chunkSize, this.chunkHeight, this.chunkSize),
+            mesh: new THREE.Group(),
+            isDirty: true,
+            biomes: new Map(),
+            trees: []
+        };
+        
+        // Copiar bloques del worker
+        chunk.data.blocks = new Uint8Array(blocks);
+        chunk.data.isEmpty = false;
+        
+        // Contar bloques
+        let blockCount = 0;
+        for (let i = 0; i < chunk.data.blocks.length; i++) {
+            if (chunk.data.blocks[i] !== 0) blockCount++;
+        }
+        chunk.data.blockCount = blockCount;
+        
+        // Aplicar árboles pendientes de otros chunks
+        this.applyPendingTrees(chunk);
+        
+        // Generar vegetación (esto aún se hace en el hilo principal por ahora)
+        const surfaceMapProcessed = new Map();
+        for (const surface of surfaceMap) {
+            surfaceMapProcessed.set(`${surface.x},${surface.z}`, surface);
+        }
+        this.generateVegetationWithOverlap(chunk, surfaceMapProcessed);
+        
+        // Construir mesh
+        this.buildChunkMesh(chunk);
+        
+        // Agregar a la escena
+        if (chunk.mesh) {
+            window.game.scene.add(chunk.mesh);
+        }
+        
+        // Guardar chunk
+        this.chunks.set(key, chunk);
+        this.collisionChunks.set(key, chunk.data);
+        
+        // Marcar worker como disponible
+        this.workerBusy = false;
+        
+        // Procesar siguiente tarea pendiente si hay
+        if (this.pendingWorkerTasks.size > 0) {
+            const [nextKey, nextTask] = this.pendingWorkerTasks.entries().next().value;
+            this.pendingWorkerTasks.delete(nextKey);
+            this.generateChunkWithWorker(nextTask.x, nextTask.z);
+        }
+    }
+
+    // Generar chunk usando Web Worker
+    generateChunkWithWorker(chunkX, chunkZ) {
+        if (!this.worker) {
+            // Si no hay worker, usar método tradicional
+            return this.generateChunkFallback(chunkX, chunkZ);
+        }
+        
+        const key = `${chunkX},${chunkZ}`;
+        
+        if (this.workerBusy) {
+            // Si el worker está ocupado, agregar a cola
+            this.pendingWorkerTasks.set(key, { x: chunkX, z: chunkZ });
+            return;
+        }
+        
+        this.workerBusy = true;
+        
+        // Enviar tarea al worker
+        this.worker.postMessage({
+            type: 'generate',
+            data: {
+                chunkX: chunkX,
+                chunkZ: chunkZ
+            }
+        });
+    }
+
+    // Fallback para generar chunk sin worker
+    generateChunkFallback(chunkX, chunkZ) {
+        const chunk = this.generateChunk(chunkX, chunkZ);
+        this.buildChunkMesh(chunk);
+        
+        if (chunk.mesh) {
+            window.game.scene.add(chunk.mesh);
+        }
+        
+        const key = `${chunkX},${chunkZ}`;
+        this.chunks.set(key, chunk);
+        this.collisionChunks.set(key, chunk.data);
     }
 
     getChunkKey(x, z) {
@@ -840,22 +998,27 @@ class ChunkManager {
         while (this.generationQueue.length > 0 && performance.now() - startTime < maxTime) {
             const task = this.generationQueue.shift();
             
-            // Generar chunk
-            const chunk = this.generateChunk(task.x, task.z);
-            
-            // Construir mesh
-            this.buildChunkMesh(chunk);
-            
-            // Agregar a la escena
-            if (chunk.mesh) {
-                window.game.scene.add(chunk.mesh);
+            // Intentar generar con Web Worker si está disponible
+            if (this.worker && !this.workerBusy) {
+                this.generateChunkWithWorker(task.x, task.z);
+            } else {
+                // Generar chunk de forma tradicional
+                const chunk = this.generateChunk(task.x, task.z);
+                
+                // Construir mesh
+                this.buildChunkMesh(chunk);
+                
+                // Agregar a la escena
+                if (chunk.mesh) {
+                    window.game.scene.add(chunk.mesh);
+                }
+                
+                // Guardar chunk
+                this.chunks.set(task.key, chunk);
+                
+                // Guardar datos de colisión
+                this.collisionChunks.set(task.key, chunk.data);
             }
-            
-            // Guardar chunk
-            this.chunks.set(task.key, chunk);
-            
-            // Guardar datos de colisión
-            this.collisionChunks.set(task.key, chunk.data);
         }
         
         this.isGenerating = false;
