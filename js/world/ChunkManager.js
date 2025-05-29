@@ -400,102 +400,242 @@ class ChunkManager {
         }
     }
 
-    // Construir mesh del chunk
+    // Método para limpiar el mesh de un chunk correctamente
+    clearChunkMesh(chunk) {
+        if (!chunk.mesh) return;
+        
+        chunk.mesh.traverse((child) => {
+            if (child.geometry) {
+                child.geometry.dispose();
+            }
+            if (child.material) {
+                if (Array.isArray(child.material)) {
+                    child.material.forEach(m => m.dispose());
+                } else {
+                    child.material.dispose();
+                }
+            }
+        });
+        
+        chunk.mesh.clear();
+    }
+
+    // Construir mesh del chunk con Face Culling estilo Minecraft
     buildChunkMesh(chunk) {
         // Limpiar mesh anterior
-        if (chunk.mesh) {
-            chunk.mesh.traverse((child) => {
-                if (child.geometry) child.geometry.dispose();
-                if (child.material) {
-                    if (Array.isArray(child.material)) {
-                        child.material.forEach(m => m.dispose());
-                    } else {
-                        child.material.dispose();
-                    }
-                }
-            });
-            chunk.mesh.clear();
-        }
+        this.clearChunkMesh(chunk);
         
-        // Agrupar bloques por tipo
-        const blocksByType = new Map();
-        const transparentBlocksByType = new Map();
+        // Estructuras para almacenar geometría por tipo de bloque
+        const geometryData = new Map();
+        const transparentGeometryData = new Map();
         
+        // Definición de las 6 caras de un cubo
+        const faces = {
+            // Cara superior (+Y)
+            top: {
+                dir: [0, 1, 0],
+                vertices: [
+                    [-0.5, 0.5, -0.5], [0.5, 0.5, -0.5],
+                    [0.5, 0.5, 0.5], [-0.5, 0.5, 0.5]
+                ],
+                normal: [0, 1, 0],
+                uvs: [0, 0, 1, 0, 1, 1, 0, 1]
+            },
+            // Cara inferior (-Y)
+            bottom: {
+                dir: [0, -1, 0],
+                vertices: [
+                    [-0.5, -0.5, 0.5], [0.5, -0.5, 0.5],
+                    [0.5, -0.5, -0.5], [-0.5, -0.5, -0.5]
+                ],
+                normal: [0, -1, 0],
+                uvs: [0, 0, 1, 0, 1, 1, 0, 1]
+            },
+            // Cara frontal (+Z)
+            front: {
+                dir: [0, 0, 1],
+                vertices: [
+                    [-0.5, -0.5, 0.5], [0.5, -0.5, 0.5],
+                    [0.5, 0.5, 0.5], [-0.5, 0.5, 0.5]
+                ],
+                normal: [0, 0, 1],
+                uvs: [0, 0, 1, 0, 1, 1, 0, 1]
+            },
+            // Cara trasera (-Z)
+            back: {
+                dir: [0, 0, -1],
+                vertices: [
+                    [0.5, -0.5, -0.5], [-0.5, -0.5, -0.5],
+                    [-0.5, 0.5, -0.5], [0.5, 0.5, -0.5]
+                ],
+                normal: [0, 0, -1],
+                uvs: [0, 0, 1, 0, 1, 1, 0, 1]
+            },
+            // Cara derecha (+X)
+            right: {
+                dir: [1, 0, 0],
+                vertices: [
+                    [0.5, -0.5, 0.5], [0.5, -0.5, -0.5],
+                    [0.5, 0.5, -0.5], [0.5, 0.5, 0.5]
+                ],
+                normal: [1, 0, 0],
+                uvs: [0, 0, 1, 0, 1, 1, 0, 1]
+            },
+            // Cara izquierda (-X)
+            left: {
+                dir: [-1, 0, 0],
+                vertices: [
+                    [-0.5, -0.5, -0.5], [-0.5, -0.5, 0.5],
+                    [-0.5, 0.5, 0.5], [-0.5, 0.5, -0.5]
+                ],
+                normal: [-1, 0, 0],
+                uvs: [0, 0, 1, 0, 1, 1, 0, 1]
+            }
+        };
+        
+        // Función para verificar si una cara debe renderizarse
+        const shouldRenderFace = (chunk, x, y, z, face) => {
+            const [dx, dy, dz] = face.dir;
+            const nx = x + dx;
+            const ny = y + dy;
+            const nz = z + dz;
+            
+            // Obtener el tipo del bloque actual
+            const currentType = chunk.data.getBlock(x, y, z);
+            const currentBlockDef = this.blockTypes[currentType];
+            const isCurrentTransparent = currentBlockDef && currentBlockDef.transparent;
+            
+            // Verificar el bloque vecino
+            let neighborType;
+            
+            // Si está fuera de los límites del chunk
+            if (nx < 0 || nx >= this.chunkSize || 
+                ny < 0 || ny >= this.chunkHeight || 
+                nz < 0 || nz >= this.chunkSize) {
+                
+                // Verificar en el chunk adyacente
+                const worldX = chunk.x * this.chunkSize + nx;
+                const worldZ = chunk.z * this.chunkSize + nz;
+                neighborType = this.getBlock(worldX, ny, worldZ);
+            } else {
+                neighborType = chunk.data.getBlock(nx, ny, nz);
+            }
+            
+            // Reglas de renderizado (igual que Minecraft):
+            // 1. Si el vecino es aire (0), siempre renderizar
+            if (neighborType === 0) return true;
+            
+            const neighborBlockDef = this.blockTypes[neighborType];
+            const isNeighborTransparent = neighborBlockDef && neighborBlockDef.transparent;
+            
+            // 2. Si ambos son opacos, NO renderizar (esta es la clave del face culling)
+            if (!isCurrentTransparent && !isNeighborTransparent) return false;
+            
+            // 3. Si el actual es transparente y el vecino es del mismo tipo, NO renderizar
+            if (isCurrentTransparent && neighborType === currentType) return false;
+            
+            // 4. Si el actual es opaco y el vecino es transparente, SÍ renderizar
+            if (!isCurrentTransparent && isNeighborTransparent) return true;
+            
+            // 5. Si el actual es transparente y el vecino es diferente, SÍ renderizar
+            if (isCurrentTransparent && neighborType !== currentType) return true;
+            
+            return false;
+        };
+        
+        // Iterar por todos los bloques del chunk
         for (let x = 0; x < this.chunkSize; x++) {
             for (let y = 0; y < this.chunkHeight; y++) {
                 for (let z = 0; z < this.chunkSize; z++) {
                     const type = chunk.data.getBlock(x, y, z);
-                    if (type === 0) continue;
+                    if (type === 0) continue; // Saltar aire
                     
-                    // Verificar si el bloque es visible
-                    if (this.isBlockExposed(chunk, x, y, z)) {
-                        const blockDef = this.blockTypes[type];
-                        const targetMap = blockDef && blockDef.transparent ? 
-                            transparentBlocksByType : blocksByType;
-                        
-                        if (!targetMap.has(type)) {
-                            targetMap.set(type, []);
+                    const blockDef = this.blockTypes[type];
+                    const isTransparent = blockDef && blockDef.transparent;
+                    const targetMap = isTransparent ? transparentGeometryData : geometryData;
+                    
+                    // Verificar cada cara
+                    let hasVisibleFace = false;
+                    
+                    for (const [faceName, faceData] of Object.entries(faces)) {
+                        if (shouldRenderFace(chunk, x, y, z, faceData)) {
+                            hasVisibleFace = true;
+                            
+                            // Inicializar arrays si no existen
+                            if (!targetMap.has(type)) {
+                                targetMap.set(type, {
+                                    positions: [],
+                                    normals: [],
+                                    uvs: [],
+                                    indices: []
+                                });
+                            }
+                            
+                            const data = targetMap.get(type);
+                            const baseIndex = data.positions.length / 3;
+                            
+                            // Posición mundial del bloque
+                            const worldX = chunk.x * this.chunkSize + x;
+                            const worldY = y;
+                            const worldZ = chunk.z * this.chunkSize + z;
+                            
+                            // Agregar vértices de la cara
+                            for (const vertex of faceData.vertices) {
+                                data.positions.push(
+                                    worldX + vertex[0] + 0.5,
+                                    worldY + vertex[1] + 0.5,
+                                    worldZ + vertex[2] + 0.5
+                                );
+                                data.normals.push(...faceData.normal);
+                            }
+                            
+                            // Agregar UVs
+                            data.uvs.push(...faceData.uvs);
+                            
+                            // Agregar índices (2 triángulos por cara)
+                            data.indices.push(
+                                baseIndex, baseIndex + 1, baseIndex + 2,
+                                baseIndex, baseIndex + 2, baseIndex + 3
+                            );
                         }
-                        
-                        targetMap.get(type).push({
-                            x: chunk.x * this.chunkSize + x,
-                            y: y,
-                            z: chunk.z * this.chunkSize + z
-                        });
                     }
                 }
             }
         }
         
-        // Crear instanced meshes para bloques opacos
-        for (let [type, positions] of blocksByType) {
-            if (positions.length === 0) continue;
+        // Crear meshes para bloques opacos
+        for (const [type, data] of geometryData) {
+            if (data.positions.length === 0) continue;
             
-            const instancedMesh = new THREE.InstancedMesh(
-                this.blockGeometry,
-                this.materials[type],
-                positions.length
-            );
+            const geometry = new THREE.BufferGeometry();
+            geometry.setAttribute('position', new THREE.Float32BufferAttribute(data.positions, 3));
+            geometry.setAttribute('normal', new THREE.Float32BufferAttribute(data.normals, 3));
+            geometry.setAttribute('uv', new THREE.Float32BufferAttribute(data.uvs, 2));
+            geometry.setIndex(data.indices);
             
-            instancedMesh.castShadow = false;
-            instancedMesh.receiveShadow = false;
+            const mesh = new THREE.Mesh(geometry, this.materials[type]);
+            mesh.castShadow = false;
+            mesh.receiveShadow = false;
             
-            const matrix = new THREE.Matrix4();
-            
-            positions.forEach((pos, i) => {
-                matrix.setPosition(pos.x, pos.y, pos.z);
-                instancedMesh.setMatrixAt(i, matrix);
-            });
-            
-            instancedMesh.instanceMatrix.needsUpdate = true;
-            instancedMesh.frustumCulled = false;
-            chunk.mesh.add(instancedMesh);
+            chunk.mesh.add(mesh);
         }
         
-        // Crear instanced meshes para bloques transparentes (se renderizan después)
-        for (let [type, positions] of transparentBlocksByType) {
-            if (positions.length === 0) continue;
+        // Crear meshes para bloques transparentes (se renderizan después)
+        for (const [type, data] of transparentGeometryData) {
+            if (data.positions.length === 0) continue;
             
-            const instancedMesh = new THREE.InstancedMesh(
-                this.blockGeometry,
-                this.materials[type],
-                positions.length
-            );
+            const geometry = new THREE.BufferGeometry();
+            geometry.setAttribute('position', new THREE.Float32BufferAttribute(data.positions, 3));
+            geometry.setAttribute('normal', new THREE.Float32BufferAttribute(data.normals, 3));
+            geometry.setAttribute('uv', new THREE.Float32BufferAttribute(data.uvs, 2));
+            geometry.setIndex(data.indices);
             
-            instancedMesh.castShadow = false;
-            instancedMesh.receiveShadow = false;
-            instancedMesh.renderOrder = 1; // Renderizar después de bloques opacos
+            const mesh = new THREE.Mesh(geometry, this.materials[type]);
+            mesh.castShadow = false;
+            mesh.receiveShadow = false;
+            mesh.renderOrder = 1; // Renderizar después de opacos
             
-            const matrix = new THREE.Matrix4();
-            
-            positions.forEach((pos, i) => {
-                matrix.setPosition(pos.x, pos.y, pos.z);
-                instancedMesh.setMatrixAt(i, matrix);
-            });
-            
-            instancedMesh.instanceMatrix.needsUpdate = true;
-            instancedMesh.frustumCulled = false;
-            chunk.mesh.add(instancedMesh);
+            chunk.mesh.add(mesh);
         }
         
         chunk.isDirty = false;
